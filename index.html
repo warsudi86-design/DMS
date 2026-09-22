@@ -1,0 +1,1312 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DMS Integrasi — Prima Wuling Aftersales</title>
+<style>
+/* ============ DESIGN TOKENS (dark theme, palet kategorikal & status tervalidasi) ============ */
+:root{
+  --page:#0d0d0d; --surface:#17181c; --surface-2:#1f2127; --surface-3:#282b33;
+  --border:rgba(255,255,255,.08); --border-strong:rgba(255,255,255,.14);
+  --ink:#ffffff; --ink-2:#c3c2b7; --ink-muted:#898781;
+  --brand:#3987e5; --brand-2:#9085e9;
+  /* kategorikal (urutan tetap, jangan diacak) */
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#0ca30c; --s7:#9085e9; --s8:#e66767;
+  /* status (dicadangkan, tidak dipakai utk kategori lain) */
+  --good:#0ca30c; --warn:#fab219; --serious:#ec835a; --critical:#d03b3b;
+  --radius:14px; --radius-sm:9px;
+  --shadow:0 10px 30px rgba(0,0,0,.35);
+}
+*{box-sizing:border-box;}
+html,body{height:100%;}
+body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:
+  radial-gradient(1200px 600px at 90% -10%, rgba(57,135,229,.10), transparent),
+  radial-gradient(900px 500px at -10% 110%, rgba(144,133,233,.08), transparent),
+  var(--page);color:var(--ink);min-height:100vh;}
+::-webkit-scrollbar{width:9px;height:9px;}
+::-webkit-scrollbar-thumb{background:var(--surface-3);border-radius:10px;}
+::-webkit-scrollbar-track{background:transparent;}
+
+.app{display:flex;min-height:100vh;}
+
+/* ---------- SIDEBAR ---------- */
+.sidebar{width:242px;flex-shrink:0;background:rgba(23,24,28,.92);backdrop-filter:blur(10px);
+  border-right:1px solid var(--border);padding:18px 12px;position:sticky;top:0;height:100vh;
+  overflow-y:auto;transition:width .2s ease;}
+.sidebar.collapsed{width:72px;}
+.sidebar.collapsed .label,.sidebar.collapsed .nav-title,.sidebar.collapsed .brand-text{display:none;}
+.brand{display:flex;align-items:center;gap:10px;margin-bottom:20px;padding:4px 6px;}
+.brand .logo{width:38px;height:38px;border-radius:11px;flex-shrink:0;
+  background:linear-gradient(135deg,var(--brand),var(--brand-2));display:flex;align-items:center;
+  justify-content:center;font-weight:800;font-size:13px;box-shadow:0 4px 14px rgba(57,135,229,.35);}
+.brand-text h1{font-size:14px;margin:0;line-height:1.2;font-weight:700;}
+.brand-text span{display:block;font-size:10.5px;color:var(--ink-muted);margin-top:1px;}
+.collapse-btn{margin-left:auto;background:none;border:none;color:var(--ink-muted);cursor:pointer;padding:4px;
+  border-radius:6px;display:flex;}
+.collapse-btn:hover{background:var(--surface-2);color:var(--ink);}
+.nav-title{font-size:10px;text-transform:uppercase;letter-spacing:.09em;color:var(--ink-muted);
+  margin:16px 10px 6px;font-weight:700;}
+.nav-item{display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:10px;cursor:pointer;
+  color:var(--ink-2);font-size:13.5px;transition:.15s;position:relative;margin-bottom:2px;white-space:nowrap;}
+.nav-item svg{flex-shrink:0;width:18px;height:18px;}
+.nav-item:hover{background:var(--surface-2);color:var(--ink);}
+.nav-item.active{background:linear-gradient(135deg,rgba(57,135,229,.22),rgba(144,133,233,.16));color:#fff;font-weight:600;}
+.nav-item.active::before{content:'';position:absolute;left:-12px;top:8px;bottom:8px;width:3px;border-radius:3px;
+  background:linear-gradient(180deg,var(--brand),var(--brand-2));}
+.nav-badge{margin-left:auto;background:var(--critical);color:#fff;font-size:10px;font-weight:800;
+  padding:1px 6px;border-radius:20px;}
+
+/* ---------- MAIN ---------- */
+.main{flex:1;min-width:0;display:flex;flex-direction:column;}
+.topbar{display:flex;align-items:center;gap:16px;padding:14px 26px;border-bottom:1px solid var(--border);
+  background:rgba(13,13,13,.6);backdrop-filter:blur(8px);position:sticky;top:0;z-index:20;}
+.topbar .crumb{font-size:12px;color:var(--ink-muted);}
+.topbar h2{margin:0;font-size:18px;font-weight:700;}
+.searchbox{margin-left:auto;display:flex;align-items:center;gap:8px;background:var(--surface-2);
+  border:1px solid var(--border);border-radius:10px;padding:7px 12px;width:260px;}
+.searchbox input{background:none;border:none;outline:none;color:var(--ink);font-size:13px;width:100%;}
+.searchbox svg{width:15px;height:15px;color:var(--ink-muted);flex-shrink:0;}
+.bell{position:relative;width:34px;height:34px;border-radius:10px;background:var(--surface-2);
+  border:1px solid var(--border);display:flex;align-items:center;justify-content:center;color:var(--ink-2);cursor:pointer;}
+.bell .dot{position:absolute;top:6px;right:7px;width:7px;height:7px;border-radius:50%;background:var(--critical);
+  box-shadow:0 0 0 2px var(--surface);}
+.avatar{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--s7),var(--s5));
+  display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;}
+.content{padding:22px 26px 40px;overflow-y:auto;}
+
+/* ---------- COMMON ---------- */
+.page-head{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:18px;gap:12px;flex-wrap:wrap;}
+.page-head h2{margin:0;font-size:21px;font-weight:800;}
+.page-head p{margin:4px 0 0;color:var(--ink-muted);font-size:13px;}
+.btn{background:linear-gradient(135deg,var(--brand),var(--brand-2));color:#fff;border:none;padding:10px 16px;
+  border-radius:10px;cursor:pointer;font-size:13px;font-weight:700;transition:.15s;display:inline-flex;align-items:center;gap:7px;}
+.btn svg{width:15px;height:15px;}
+.btn:hover{filter:brightness(1.12);transform:translateY(-1px);}
+.btn:disabled{opacity:.4;cursor:not-allowed;transform:none;}
+.btn.secondary{background:var(--surface-2);border:1px solid var(--border-strong);}
+.btn.good{background:linear-gradient(135deg,#0ca30c,#0a8a0a);}
+.btn.critical{background:linear-gradient(135deg,#d03b3b,#a92e2e);}
+.btn.sm{padding:6px 11px;font-size:12px;border-radius:8px;}
+.btn.ghost{background:transparent;border:1px solid var(--border-strong);color:var(--ink-2);}
+
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:20px;}
+.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:17px 18px;
+  position:relative;overflow:hidden;}
+.stat-card .icon{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;margin-bottom:10px;}
+.stat-card .icon svg{width:17px;height:17px;}
+.stat-card .label{font-size:12px;color:var(--ink-muted);font-weight:600;}
+.stat-card .value{font-size:25px;font-weight:800;margin-top:3px;}
+.stat-card .delta{font-size:11.5px;margin-top:4px;font-weight:700;display:flex;align-items:center;gap:4px;}
+.delta.up{color:var(--good);} .delta.down{color:var(--critical);} .delta.flat{color:var(--ink-muted);}
+
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:19px;
+  margin-bottom:18px;box-shadow:var(--shadow);}
+.panel h3{margin:0 0 4px;font-size:14.5px;font-weight:700;}
+.panel .sub{font-size:11.5px;color:var(--ink-muted);margin:0 0 14px;}
+.grid2{display:grid;grid-template-columns:1.4fr 1fr;gap:16px;}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;}
+@media(max-width:1000px){.grid2{grid-template-columns:1fr;}}
+
+table{width:100%;border-collapse:collapse;font-size:13px;}
+th,td{padding:10px 10px;text-align:left;border-bottom:1px solid var(--border);}
+th{color:var(--ink-muted);font-weight:700;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;
+  cursor:pointer;user-select:none;white-space:nowrap;}
+th:hover{color:var(--ink);}
+th .sort-arrow{font-size:9px;margin-left:3px;opacity:.6;}
+tbody tr{transition:.1s;}
+tbody tr:hover td{background:rgba(255,255,255,.025);}
+td.num{font-variant-numeric:tabular-nums;}
+
+.badge{padding:4px 10px;border-radius:999px;font-size:11px;font-weight:700;display:inline-flex;align-items:center;gap:5px;white-space:nowrap;}
+.badge .dot{width:6px;height:6px;border-radius:50%;}
+.badge.s1{background:rgba(57,135,229,.16);color:#7db1ee;} .badge.s1 .dot{background:var(--s1);}
+.badge.s2{background:rgba(217,89,38,.16);color:#f0946a;} .badge.s2 .dot{background:var(--s2);}
+.badge.s3{background:rgba(25,158,112,.16);color:#5fd2a8;} .badge.s3 .dot{background:var(--s3);}
+.badge.s4{background:rgba(201,133,0,.18);color:#f0b53d;} .badge.s4 .dot{background:var(--s4);}
+.badge.s5{background:rgba(213,81,129,.16);color:#ef94b7;} .badge.s5 .dot{background:var(--s5);}
+.badge.s6{background:rgba(12,163,12,.16);color:#5fd25f;} .badge.s6 .dot{background:var(--s6);}
+.badge.s7{background:rgba(144,133,233,.18);color:#bdb6f5;} .badge.s7 .dot{background:var(--s7);}
+.badge.good{background:rgba(12,163,12,.16);color:#5fd25f;} .badge.good .dot{background:var(--good);}
+.badge.warn{background:rgba(250,178,25,.18);color:#fcd374;} .badge.warn .dot{background:var(--warn);}
+.badge.critical{background:rgba(208,59,59,.18);color:#f28080;} .badge.critical .dot{background:var(--critical);}
+.badge.muted{background:var(--surface-3);color:var(--ink-muted);} .badge.muted .dot{background:var(--ink-muted);}
+
+.tabs{display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap;border-bottom:1px solid var(--border);padding-bottom:2px;}
+.tab{padding:9px 15px;cursor:pointer;font-size:13px;color:var(--ink-muted);font-weight:600;border-bottom:2px solid transparent;margin-bottom:-1px;}
+.tab.active{color:var(--ink);border-color:var(--brand);}
+
+label{font-size:12px;color:var(--ink-muted);display:block;margin-bottom:5px;font-weight:600;}
+input,select,textarea{width:100%;padding:9px 11px;border-radius:9px;border:1px solid var(--border-strong);
+  background:var(--surface-2);color:var(--ink);font-size:13px;margin-bottom:13px;font-family:inherit;}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand);}
+textarea{resize:vertical;min-height:60px;}
+
+/* ---------- DRAWER (slide-in panel, ganti modal utk form) ---------- */
+.drawer-bg{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;z-index:60;}
+.drawer-bg.show{display:block;}
+.drawer{position:fixed;top:0;right:-720px;width:680px;max-width:94vw;height:100vh;background:var(--surface);
+  border-left:1px solid var(--border-strong);z-index:61;transition:right .25s cubic-bezier(.2,.8,.2,1);
+  display:flex;flex-direction:column;box-shadow:-16px 0 40px rgba(0,0,0,.4);}
+.drawer.show{right:0;}
+.drawer-head{padding:20px 24px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;}
+.drawer-head h3{margin:0;font-size:17px;font-weight:800;}
+.drawer-close{background:var(--surface-2);border:none;color:var(--ink-2);width:32px;height:32px;border-radius:9px;cursor:pointer;}
+.drawer-body{padding:22px 24px;overflow-y:auto;flex:1;}
+.drawer-foot{padding:16px 24px;border-top:1px solid var(--border);display:flex;justify-content:space-between;gap:10px;}
+
+/* ---------- small confirm modal ---------- */
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;z-index:70;}
+.modal-bg.show{display:flex;}
+.modal{background:var(--surface);border:1px solid var(--border-strong);border-radius:16px;padding:22px;width:420px;max-width:92vw;}
+
+.row-line{display:flex;gap:8px;align-items:flex-end;margin-bottom:10px;}
+.row-line select,.row-line input{margin-bottom:0;}
+.chip-list{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;}
+.chip{background:var(--surface-2);border:1px solid var(--border);padding:6px 10px 6px 12px;border-radius:20px;
+  font-size:12.5px;display:flex;align-items:center;gap:8px;}
+.chip button{background:none;border:none;color:var(--ink-muted);cursor:pointer;font-size:14px;line-height:1;padding:0;}
+.chip button:hover{color:var(--critical);}
+
+/* ---------- toast ---------- */
+.toast-stack{position:fixed;top:20px;right:20px;z-index:100;display:flex;flex-direction:column;gap:10px;}
+.toast{background:var(--surface-2);border:1px solid var(--border-strong);padding:13px 16px;border-radius:11px;
+  min-width:260px;box-shadow:var(--shadow);display:flex;align-items:flex-start;gap:10px;
+  animation:slideIn .2s ease;}
+@keyframes slideIn{from{transform:translateX(30px);opacity:0;}to{transform:translateX(0);opacity:1;}}
+.toast .ic{width:20px;height:20px;flex-shrink:0;border-radius:50%;display:flex;align-items:center;justify-content:center;margin-top:1px;}
+.toast.ok .ic{background:rgba(12,163,12,.2);color:var(--good);}
+.toast.err .ic{background:rgba(208,59,59,.2);color:var(--critical);}
+.toast .msg{font-size:13px;}
+
+.muted{color:var(--ink-muted);}
+.flex-between{display:flex;justify-content:space-between;align-items:center;}
+.empty-state{padding:44px 20px;text-align:center;color:var(--ink-muted);}
+.empty-state svg{width:38px;height:38px;margin-bottom:10px;opacity:.5;}
+.skeleton{background:linear-gradient(90deg,var(--surface-2) 25%,var(--surface-3) 37%,var(--surface-2) 63%);
+  background-size:400% 100%;animation:shimmer 1.4s ease infinite;border-radius:8px;}
+@keyframes shimmer{0%{background-position:100% 0;}100%{background-position:-100% 0;}}
+.skel-row{height:36px;margin-bottom:8px;}
+.kv{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px dashed var(--border);font-size:13px;}
+
+/* ---------- KANBAN (Work Order) ---------- */
+.kanban{display:flex;gap:14px;overflow-x:auto;padding-bottom:10px;}
+.kanban-col{flex:0 0 250px;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius);
+  padding:12px;display:flex;flex-direction:column;min-height:120px;transition:.15s;}
+.kanban-col.dragover{background:rgba(57,135,229,.1);border-color:var(--brand);}
+.kanban-col h4{margin:0 0 10px;font-size:12.5px;display:flex;align-items:center;gap:7px;color:var(--ink-2);}
+.kanban-col h4 .count{margin-left:auto;background:var(--surface-3);padding:1px 8px;border-radius:10px;font-size:11px;}
+.kcard{background:var(--surface);border:1px solid var(--border);border-radius:11px;padding:12px;margin-bottom:9px;
+  cursor:grab;transition:.15s;}
+.kcard:hover{border-color:var(--border-strong);transform:translateY(-1px);}
+.kcard:active{cursor:grabbing;}
+.kcard.dragging{opacity:.4;}
+.kcard .woid{font-size:11.5px;font-weight:700;color:var(--brand);}
+.kcard .cust{font-size:13px;font-weight:600;margin:4px 0 2px;}
+.kcard .plate{font-size:11.5px;color:var(--ink-muted);}
+.kcard .foot{display:flex;justify-content:space-between;align-items:center;margin-top:9px;}
+.kcard .total{font-size:12px;font-weight:700;}
+
+/* ---------- stepper (progress WO / PO) ---------- */
+.stepper{display:flex;align-items:center;margin:14px 0 20px;}
+.step{display:flex;flex-direction:column;align-items:center;flex:1;position:relative;}
+.step .circle{width:26px;height:26px;border-radius:50%;background:var(--surface-3);border:2px solid var(--border-strong);
+  display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:var(--ink-muted);z-index:2;}
+.step.done .circle{background:var(--good);border-color:var(--good);color:#fff;}
+.step.current .circle{background:var(--brand);border-color:var(--brand);color:#fff;box-shadow:0 0 0 4px rgba(57,135,229,.25);}
+.step .stitle{font-size:10px;color:var(--ink-muted);margin-top:6px;text-align:center;max-width:80px;}
+.step.done .stitle,.step.current .stitle{color:var(--ink);}
+.step:not(:last-child)::after{content:'';position:absolute;top:13px;left:calc(50% + 16px);right:calc(-50% + 16px);
+  height:2px;background:var(--border-strong);z-index:1;}
+.step.done:not(:last-child)::after{background:var(--good);}
+
+/* ---------- chart helpers ---------- */
+.chart-legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;font-size:11.5px;color:var(--ink-2);}
+.chart-legend .item{display:flex;align-items:center;gap:6px;}
+.chart-legend .sw{width:9px;height:9px;border-radius:2px;}
+.tooltip-svg{position:fixed;background:#0b0b0b;border:1px solid var(--border-strong);border-radius:8px;padding:7px 10px;
+  font-size:11.5px;pointer-events:none;z-index:200;box-shadow:var(--shadow);display:none;white-space:nowrap;}
+
+.view-toggle{display:flex;background:var(--surface-2);border:1px solid var(--border);border-radius:9px;padding:3px;gap:2px;}
+.view-toggle button{background:none;border:none;color:var(--ink-muted);padding:6px 12px;border-radius:7px;font-size:12px;
+  font-weight:700;cursor:pointer;}
+.view-toggle button.active{background:var(--surface-3);color:var(--ink);}
+
+.activity-item{display:flex;gap:11px;padding:10px 0;border-bottom:1px dashed var(--border);}
+.activity-item:last-child{border-bottom:none;}
+.activity-item .aic{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.activity-item .aic svg{width:14px;height:14px;}
+.activity-item .txt{font-size:12.5px;}
+.activity-item .time{font-size:10.5px;color:var(--ink-muted);margin-top:2px;}
+
+@media(max-width:820px){
+  .sidebar{position:fixed;left:-260px;z-index:80;transition:left .2s;} .sidebar.mobile-open{left:0;}
+  .main{width:100%;}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="logo">DMS</div>
+      <div class="brand-text"><h1>DMS Integrasi</h1><span>Prima Wuling Aftersales</span></div>
+      <button class="collapse-btn" onclick="toggleSidebar()" title="Collapse">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
+    </div>
+    <div class="nav-group" id="navGroup"></div>
+  </div>
+
+  <div class="main">
+    <div class="topbar">
+      <button class="collapse-btn" style="display:none" id="mobileToggle" onclick="document.getElementById('sidebar').classList.toggle('mobile-open')">☰</button>
+      <div><div class="crumb" id="crumb">DMS</div><h2 id="pageTitle">Dashboard</h2></div>
+      <div class="searchbox">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        <input id="globalSearch" placeholder="Cari part, WO, PO...">
+      </div>
+      <div class="bell" onclick="views.dashboard()" title="Peringatan stok"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg><span class="dot" id="bellDot" style="display:none"></span></div>
+      <div class="avatar">AF</div>
+    </div>
+    <div class="content" id="main"><div class="skeleton skel-row" style="width:200px"></div></div>
+  </div>
+</div>
+
+<div class="drawer-bg" id="drawerBg"><div class="drawer" id="drawer"></div></div>
+<div class="modal-bg" id="modalBg"><div class="modal" id="modalBody"></div></div>
+<div class="toast-stack" id="toastStack"></div>
+<div class="tooltip-svg" id="svgTooltip"></div>
+
+<script>
+/* ================= KONFIGURASI ================= */
+const API_URL = 'https://script.google.com/macros/s/AKfycbwWkXBqTvhVotLBZjD8rBAZoNZTU8fx5EHfdY0A4BrMErEXw1PO3cqttrmhBoRNA4HNSg/exec'; // ganti dengan URL /exec hasil deploy
+
+/* ================= ICONS ================= */
+const ICONS = {
+  dashboard:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>',
+  customer:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>',
+  vehicle:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 13l1.5-5A2 2 0 016.4 6.5h11.2A2 2 0 0119.5 8l1.5 5"/><rect x="2" y="13" width="20" height="6" rx="1.5"/><circle cx="7" cy="19" r="1.6"/><circle cx="17" cy="19" r="1.6"/></svg>',
+  part:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a4 4 0 015.3 5.3l-6.9 6.9a2 2 0 01-2.8 0L4 12.2a2 2 0 010-2.8l6.9-6.9a4 4 0 015.3 5.3"/></svg>',
+  labor:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3l3 3L7 20H4v-3z"/><path d="M13 4l3 3"/></svg>',
+  wo:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>',
+  po:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2h9l5 5v13a2 2 0 01-2 2H6a2 2 0 01-2-2V4a2 2 0 012-2z"/><path d="M14 2v5h5"/></svg>',
+  approve:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg>',
+  receive:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/></svg>',
+  inbound:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M6 13l6 6 6-6"/></svg>',
+  outbound:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M6 11l6-6 6 6"/></svg>',
+  history:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 109-9 9.75 9.75 0 00-7 3L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>',
+  card:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>',
+  money:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M9 9a3 3 0 016 0c0 2-3 2-3 4M12 17h.01"/></svg>',
+  warning:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/></svg>',
+  plus:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>',
+  edit:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg>',
+};
+function icon(name){ return ICONS[name] || ''; }
+
+/* ================= NAV CONFIG ================= */
+const NAV = [
+  {group:null, items:[{id:'dashboard', label:'Dashboard', icon:'dashboard'}]},
+  {group:'Master Data', items:[
+    {id:'customer', label:'Customer', icon:'customer'},
+    {id:'vehicle', label:'Vehicle', icon:'vehicle'},
+    {id:'partmaster', label:'Part Master', icon:'part'},
+    {id:'labormaster', label:'Labor Master', icon:'labor'},
+  ]},
+  {group:'Work Order', items:[{id:'workorder', label:'Work Order (WIP)', icon:'wo'}]},
+  {group:'Inventory Management', items:[
+    {id:'po-created', label:'PO Created', icon:'po'},
+    {id:'po-approval', label:'Approval PO', icon:'approve'},
+    {id:'penerimaan', label:'Penerimaan Part', icon:'receive'},
+    {id:'inbound', label:'Inbound Part', icon:'inbound'},
+    {id:'outbound', label:'Outbound Part', icon:'outbound'},
+    {id:'inbound-history', label:'Inbound History', icon:'history'},
+    {id:'outbound-history', label:'Outbound History', icon:'history'},
+    {id:'kartustok', label:'Kartu Stok', icon:'card'},
+  ]}
+];
+function buildNav(){
+  const el = document.getElementById('navGroup');
+  el.innerHTML = NAV.map(g => `
+    ${g.group ? `<div class="nav-title">${g.group}</div>` : ''}
+    ${g.items.map(it => `<div class="nav-item" data-view="${it.id}" title="${it.label}">${icon(it.icon)}<span class="label">${it.label}</span>${it.id==='partmaster'?'<span class="nav-badge" id="navLowStock" style="display:none"></span>':''}</div>`).join('')}
+  `).join('');
+  el.querySelectorAll('.nav-item').forEach(item=>{
+    item.addEventListener('click', ()=>{
+      el.querySelectorAll('.nav-item').forEach(i=>i.classList.remove('active'));
+      item.classList.add('active');
+      const view = item.getAttribute('data-view');
+      const label = item.querySelector('.label').textContent;
+      document.getElementById('pageTitle').textContent = label;
+      document.getElementById('crumb').textContent = 'DMS / ' + label;
+      document.getElementById('sidebar').classList.remove('mobile-open');
+      views[view]();
+    });
+  });
+  el.querySelector('[data-view="dashboard"]').classList.add('active');
+}
+function toggleSidebar(){ document.getElementById('sidebar').classList.toggle('collapsed'); }
+buildNav();
+
+/* ================= HELPER API ================= */
+async function apiGet(action, params={}){
+  const qs = new URLSearchParams({action, ...params}).toString();
+  try{
+    const res = await fetch(`${API_URL}?${qs}`);
+    return await res.json();
+  }catch(err){ return {success:false, message:'Gagal terhubung ke server: '+err.message}; }
+}
+async function apiPost(action, data={}){
+  try{
+    const res = await fetch(API_URL, {method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body: JSON.stringify({action, ...data})});
+    return await res.json();
+  }catch(err){ return {success:false, message:'Gagal terhubung ke server: '+err.message}; }
+}
+function toast(msg, isError=false){
+  const stack = document.getElementById('toastStack');
+  const t = document.createElement('div');
+  t.className = 'toast ' + (isError?'err':'ok');
+  t.innerHTML = `<span class="ic">${isError ? '&times;' : '&#10003;'}</span><span class="msg">${msg}</span>`;
+  stack.appendChild(t);
+  setTimeout(()=>{ t.style.transition='opacity .3s'; t.style.opacity='0'; setTimeout(()=>t.remove(),300); }, 3200);
+}
+function fmtMoney(n){ n = Number(n)||0; if(Math.abs(n)>=1000000) return 'Rp '+(n/1000000).toFixed(1).replace('.0','')+'jt'; return 'Rp ' + n.toLocaleString('id-ID'); }
+function fmtMoneyFull(n){ return 'Rp ' + (Number(n)||0).toLocaleString('id-ID'); }
+function fmtDate(d){ if(!d) return '-'; const dt = new Date(d); return isNaN(dt) ? d : dt.toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'numeric'}); }
+function timeAgo(d){ if(!d) return ''; const s = (Date.now()-new Date(d).getTime())/1000; if(s<60) return 'baru saja'; if(s<3600) return Math.floor(s/60)+' menit lalu'; if(s<86400) return Math.floor(s/3600)+' jam lalu'; return Math.floor(s/86400)+' hari lalu'; }
+function val(id){ const e = document.getElementById(id); return e ? e.value : ''; }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+/* status -> slot kategorikal (urutan tetap, konsisten dgn alur bisnis) */
+const WO_STATUS_SLOT = {'New':'s1','Dispatching':'s2','Material Picking':'s4','Completed':'s6','Invoice':'s5','Vehicle Delivery':'s3'};
+const PO_STATUS_BADGE = {'PO Created':'s1','Approval PO':'s4','Received':'good','Partial Received':'warn','Rejected':'critical'};
+function statusBadge(status, map){ const slot = (map||WO_STATUS_SLOT)[status] || 'muted'; return `<span class="badge ${slot}"><span class="dot"></span>${esc(status)}</span>`; }
+
+function openModal(html){ document.getElementById('modalBody').innerHTML = html; document.getElementById('modalBg').classList.add('show'); }
+function closeModal(){ document.getElementById('modalBg').classList.remove('show'); }
+document.getElementById('modalBg').addEventListener('click', e=>{ if(e.target.id==='modalBg') closeModal(); });
+
+function openDrawer(html){ document.getElementById('drawer').innerHTML = html; document.getElementById('drawerBg').classList.add('show'); requestAnimationFrame(()=>document.getElementById('drawer').classList.add('show')); }
+function closeDrawer(){ document.getElementById('drawer').classList.remove('show'); setTimeout(()=>document.getElementById('drawerBg').classList.remove('show'),250); }
+document.getElementById('drawerBg').addEventListener('click', e=>{ if(e.target.id==='drawerBg') closeDrawer(); });
+
+function skeletonRows(n){ return Array.from({length:n}).map(()=>`<div class="skeleton skel-row"></div>`).join(''); }
+function emptyState(msg){ return `<div class="empty-state">${icon('warning')}<div>${msg}</div></div>`; }
+
+/* ================= SIMPLE TABLE COMPONENT (search + sort) ================= */
+function dataTable(opts){
+  // opts: {id, columns:[{key,label,render,sortable,numeric}], rows, searchKeys, rowActions}
+  const state = { sortKey:null, sortDir:1, q:'' };
+  const wrapId = 'tbl_'+opts.id;
+  function matches(row){
+    if(!state.q) return true;
+    const q = state.q.toLowerCase();
+    return (opts.searchKeys||opts.columns.map(c=>c.key)).some(k=>String(row[k]||'').toLowerCase().includes(q));
+  }
+  function sortRows(rows){
+    if(!state.sortKey) return rows;
+    const k = state.sortKey;
+    return [...rows].sort((a,b)=>{
+      let va=a[k], vb=b[k];
+      if(!isNaN(va) && !isNaN(vb) && va!=='' && vb!==''){ va=Number(va); vb=Number(vb); }
+      if(va<vb) return -1*state.sortDir; if(va>vb) return 1*state.sortDir; return 0;
+    });
+  }
+  function render(){
+    const filtered = sortRows(opts.rows.filter(matches));
+    const el = document.getElementById(wrapId);
+    if(!el) return;
+    el.innerHTML = `
+      <div class="flex-between" style="margin-bottom:12px;">
+        <div class="searchbox" style="width:230px;margin-left:0;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+          <input placeholder="Cari..." value="${esc(state.q)}" oninput="window.__tbl_${opts.id}.search(this.value)">
+        </div>
+        <span class="muted" style="font-size:12px;">${filtered.length} data</span>
+      </div>
+      <div style="overflow-x:auto;">
+      <table><thead><tr>
+        ${opts.columns.map(c=>`<th ${c.sortable!==false?`onclick="window.__tbl_${opts.id}.sort('${c.key}')"`:''}>${c.label}${state.sortKey===c.key?`<span class="sort-arrow">${state.sortDir>0?'▲':'▼'}</span>`:''}</th>`).join('')}
+        ${opts.rowActions?'<th></th>':''}
+      </tr></thead><tbody>
+      ${filtered.length===0 ? `<tr><td colspan="${opts.columns.length+1}">${emptyState('Tidak ada data')}</td></tr>` :
+        filtered.map(row=>`<tr>${opts.columns.map(c=>`<td class="${c.numeric?'num':''}">${c.render?c.render(row):esc(row[c.key])}</td>`).join('')}${opts.rowActions?`<td>${opts.rowActions(row)}</td>`:''}</tr>`).join('')}
+      </tbody></table>
+      </div>
+    `;
+  }
+  window['__tbl_'+opts.id] = {
+    search(q){ state.q = q; render(); },
+    sort(k){ if(state.sortKey===k) state.sortDir*=-1; else {state.sortKey=k; state.sortDir=1;} render(); },
+    refresh(rows){ if(rows) opts.rows = rows; render(); }
+  };
+  return `<div id="${wrapId}"></div><script>window.__tbl_${opts.id} && window.__tbl_${opts.id}.search('')</script>`;
+}
+function initTable(id){ window['__tbl_'+id].search(''); }
+
+/* ================= SVG CHART HELPERS (self-contained, sesuai spesifikasi mark) ================= */
+function svgTooltipShow(x,y,html){ const t=document.getElementById('svgTooltip'); t.innerHTML=html; t.style.left=(x+14)+'px'; t.style.top=(y+14)+'px'; t.style.display='block'; }
+function svgTooltipHide(){ document.getElementById('svgTooltip').style.display='none'; }
+
+// Horizontal bar chart - identity/kategori, label langsung di ujung bar
+function hBarChart(items, opts={}){
+  // items: [{label, value, colorVar}]
+  const w = opts.width || 100; // percentage-based via viewBox
+  const max = Math.max(1, ...items.map(i=>i.value));
+  const barH = 20, gap = 14;
+  const chartW = 560, leftPad = 130, rightPad = 60;
+  const plotW = chartW - leftPad - rightPad;
+  const h = items.length * (barH+gap);
+  let svg = `<svg viewBox="0 0 ${chartW} ${h+10}" width="100%" style="max-width:${chartW}px;overflow:visible;" preserveAspectRatio="xMinYMin meet">`;
+  items.forEach((it,i)=>{
+    const y = i*(barH+gap);
+    const bw = Math.max(2, (it.value/max)*plotW);
+    const color = `var(--${it.colorVar||'s1'})`;
+    svg += `<text x="${leftPad-10}" y="${y+barH/2+4}" text-anchor="end" font-size="11.5" fill="var(--ink-2)">${esc(it.label)}</text>`;
+    svg += `<rect x="${leftPad}" y="${y}" width="${plotW}" height="${barH}" rx="4" fill="var(--surface-3)" opacity=".35"/>`;
+    svg += `<rect class="hbar" data-i="${i}" x="${leftPad}" y="${y}" width="${bw}" height="${barH}" rx="4" fill="${color}" style="cursor:pointer;"/>`;
+    svg += `<text x="${leftPad+bw+8}" y="${y+barH/2+4}" font-size="11.5" font-weight="700" fill="var(--ink)">${it.value}</text>`;
+  });
+  svg += `</svg>`;
+  return svg;
+}
+
+// Line/area chart - trend waktu (satu seri, hue sequential biru)
+function lineChart(labels, values, opts={}){
+  const chartW = 560, chartH = 200, padL = 50, padR = 16, padT = 16, padB = 30;
+  const plotW = chartW-padL-padR, plotH = chartH-padT-padB;
+  const max = Math.max(...values, 1);
+  const min = Math.min(...values, 0);
+  const range = (max-min)||1;
+  const pts = values.map((v,i)=>({
+    x: padL + (i/(values.length-1||1))*plotW,
+    y: padT + plotH - ((v-min)/range)*plotH,
+    v, label: labels[i]
+  }));
+  const path = pts.map((p,i)=>(i===0?'M':'L')+p.x.toFixed(1)+' '+p.y.toFixed(1)).join(' ');
+  const areaPath = path + ` L${pts[pts.length-1].x.toFixed(1)} ${padT+plotH} L${pts[0].x.toFixed(1)} ${padT+plotH} Z`;
+  const gridLines = [0,.25,.5,.75,1].map(f=>{
+    const y = padT + plotH*f;
+    return `<line x1="${padL}" y1="${y}" x2="${chartW-padR}" y2="${y}" stroke="var(--border)" stroke-width="1"/>`;
+  }).join('');
+  let svg = `<svg id="lineChartSvg" viewBox="0 0 ${chartW} ${chartH}" width="100%" style="max-width:${chartW}px;overflow:visible;">
+    <defs><linearGradient id="areaFill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="var(--s1)" stop-opacity=".22"/>
+      <stop offset="100%" stop-color="var(--s1)" stop-opacity="0"/>
+    </linearGradient></defs>
+    ${gridLines}
+    <path d="${areaPath}" fill="url(#areaFill)"/>
+    <path d="${path}" fill="none" stroke="var(--s1)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    ${pts.map((p,i)=>`<circle class="linept" data-i="${i}" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="4.5" fill="var(--s1)" stroke="var(--surface)" stroke-width="2" style="cursor:pointer;"/>`).join('')}
+    ${pts.map((p,i)=>`<text x="${p.x.toFixed(1)}" y="${chartH-8}" text-anchor="middle" font-size="10" fill="var(--ink-muted)">${esc(p.label)}</text>`).join('')}
+    <text x="${pts[pts.length-1].x.toFixed(1)}" y="${(pts[pts.length-1].y-12).toFixed(1)}" text-anchor="middle" font-size="11.5" font-weight="700" fill="var(--ink)">${opts.fmt?opts.fmt(pts[pts.length-1].v):pts[pts.length-1].v}</text>
+  </svg>`;
+  return {svg, pts, fmt:opts.fmt};
+}
+function attachLineTooltip(containerEl, pts, fmt){
+  containerEl.querySelectorAll('.linept').forEach((c,i)=>{
+    c.addEventListener('mousemove', e=>{ svgTooltipShow(e.clientX,e.clientY, `<b>${pts[i].label}</b><br>${fmt?fmt(pts[i].v):pts[i].v}`); });
+    c.addEventListener('mouseleave', svgTooltipHide);
+  });
+}
+function attachBarTooltip(containerEl, items){
+  containerEl.querySelectorAll('.hbar').forEach((b,i)=>{
+    b.addEventListener('mousemove', e=>{ svgTooltipShow(e.clientX,e.clientY, `<b>${items[i].label}</b><br>${items[i].value}`); });
+    b.addEventListener('mouseleave', svgTooltipHide);
+  });
+}
+
+// Donut chart - proporsi (mis. status PO)
+function donutChart(items, opts={}){
+  const size = opts.size||160, r=size/2-14, cx=size/2, cy=size/2, sw=20;
+  const total = items.reduce((s,i)=>s+i.value,0)||1;
+  let acc = -90;
+  const circ = 2*Math.PI*r;
+  let svg = `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}">`;
+  items.forEach((it,i)=>{
+    const frac = it.value/total;
+    const dash = circ*frac;
+    svg += `<circle class="donut-seg" data-i="${i}" cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--${it.colorVar})"
+      stroke-width="${sw}" stroke-dasharray="${dash-2} ${circ-dash+2}" stroke-dashoffset="${-acc/360*circ}"
+      transform="rotate(-90 ${cx} ${cy})" style="cursor:pointer;transition:.2s;"/>`;
+    acc += frac*360;
+  });
+  svg += `<text x="${cx}" y="${cy-2}" text-anchor="middle" font-size="20" font-weight="800" fill="var(--ink)">${total}</text>`;
+  svg += `<text x="${cx}" y="${cy+16}" text-anchor="middle" font-size="10" fill="var(--ink-muted)">Total</text>`;
+  svg += `</svg>`;
+  return svg;
+}
+function legendFor(items){
+  return `<div class="chart-legend">${items.map(it=>`<div class="item"><span class="sw" style="background:var(--${it.colorVar})"></span>${esc(it.label)} (${it.value})</div>`).join('')}</div>`;
+}
+
+/* ================= VIEW REGISTRY ================= */
+const views = {
+  dashboard: renderDashboard,
+  customer: renderCustomer,
+  vehicle: renderVehicle,
+  partmaster: renderPartMaster,
+  labormaster: renderLaborMaster,
+  workorder: renderWorkOrder,
+  'po-created': renderPOCreated,
+  'po-approval': renderPOApproval,
+  penerimaan: renderPenerimaan,
+  inbound: renderInboundManual,
+  outbound: renderOutboundManual,
+  'inbound-history': renderInboundHistory,
+  'outbound-history': renderOutboundHistory,
+  kartustok: renderKartuStok
+};
+const main = document.getElementById('main');
+function setMain(html){ main.innerHTML = html; }
+
+/* ================= DASHBOARD ================= */
+async function renderDashboard(){
+  setMain(`<div class="cards">${Array.from({length:4}).map(()=>'<div class="skeleton" style="height:90px"></div>').join('')}</div><div class="skeleton" style="height:260px"></div>`);
+  const res = await apiGet('getDashboard');
+  if(!res.success){ setMain(`<div class="panel">${emptyState('Gagal memuat dashboard: '+esc(res.message))}</div>`); return; }
+  const d = res.data;
+
+  document.getElementById('bellDot').style.display = d.lowStockCount>0 ? 'block':'none';
+  const navBadge = document.getElementById('navLowStock');
+  if(navBadge){ navBadge.style.display = d.lowStockCount>0?'inline-block':'none'; navBadge.textContent = d.lowStockCount; }
+
+  const woItems = Object.entries(d.woByStatus).map(([label,value])=>({label,value,colorVar:WO_STATUS_SLOT[label]}));
+  const poEntries = Object.entries(d.poStatusBreakdown||{});
+  const poColors = ['s1','s4','s6','s3','critical'];
+  const poItems = poEntries.map(([label,value],i)=>({label,value,colorVar: PO_STATUS_BADGE[label]==='good'?'s6':PO_STATUS_BADGE[label]==='critical'?'s5': (poColors[i]||'s7')}));
+
+  setMain(`
+    <div class="cards">
+      <div class="stat-card"><div class="icon" style="background:rgba(57,135,229,.16);color:var(--s1)">${icon('wo')}</div>
+        <div class="label">Total Work Order</div><div class="value">${d.totalWO}</div></div>
+      <div class="stat-card"><div class="icon" style="background:rgba(201,133,0,.16);color:var(--s4)">${icon('po')}</div>
+        <div class="label">PO Menunggu Approval</div><div class="value">${d.poPendingApproval}</div></div>
+      <div class="stat-card"><div class="icon" style="background:rgba(208,59,59,.16);color:var(--critical)">${icon('warning')}</div>
+        <div class="label">Part Stok Rendah</div><div class="value">${d.lowStockCount}</div>
+        ${d.lowStockCount>0?`<div class="delta down">Perlu tindakan</div>`:`<div class="delta up">Semua aman</div>`}</div>
+      <div class="stat-card"><div class="icon" style="background:rgba(12,163,12,.16);color:var(--good)">${icon('money')}</div>
+        <div class="label">Revenue Bulan Ini</div><div class="value" style="font-size:19px;">${fmtMoney(d.revenueThisMonth)}</div></div>
+    </div>
+    <div class="grid2">
+      <div class="panel">
+        <h3>Tren Revenue 6 Bulan Terakhir</h3>
+        <p class="sub">Dari Work Order berstatus Invoice / Vehicle Delivery</p>
+        <div id="lineChartWrap"></div>
+      </div>
+      <div class="panel">
+        <h3>Work Order per Status</h3>
+        <p class="sub">Distribusi WIP saat ini</p>
+        <div id="barChartWrap"></div>
+      </div>
+    </div>
+    <div class="grid2">
+      <div class="panel">
+        <h3>Status Purchase Order</h3>
+        <p class="sub">Proporsi PO berdasarkan status</p>
+        <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;">
+          ${poEntries.length ? donutChart(poItems) : ''}
+          ${poEntries.length ? legendFor(poItems) : emptyState('Belum ada data PO')}
+        </div>
+      </div>
+      <div class="panel">
+        <h3>Aktivitas Terbaru</h3>
+        <p class="sub">Work order & mutasi stok terkini</p>
+        ${(d.recentActivity||[]).length===0 ? emptyState('Belum ada aktivitas') : d.recentActivity.map(a=>`
+          <div class="activity-item">
+            <div class="aic" style="background:${a.type==='Inbound'?'rgba(12,163,12,.16)':a.type==='Outbound'?'rgba(208,59,59,.16)':'rgba(57,135,229,.16)'};color:${a.type==='Inbound'?'var(--good)':a.type==='Outbound'?'var(--critical)':'var(--s1)'}">
+              ${icon(a.type==='Inbound'?'inbound':a.type==='Outbound'?'outbound':'wo')}
+            </div>
+            <div><div class="txt">${esc(a.text)}</div><div class="time">${timeAgo(a.tgl)}</div></div>
+          </div>`).join('')}
+      </div>
+    </div>
+    ${d.lowStockList && d.lowStockList.length ? `
+    <div class="panel">
+      <h3>⚠ Part Stok Rendah (≤ Stok Minimum)</h3>
+      <table><tr><th>Part</th><th>Nama</th><th>Stok</th><th>Min</th></tr>
+        ${d.lowStockList.map(p=>`<tr><td>${esc(p.PartNumber)}</td><td>${esc(p.PartName)}</td><td class="num">${p.StokAkhir}</td><td class="num">${p.StokMinimum}</td></tr>`).join('')}
+      </table>
+    </div>` : ''}
+  `);
+
+  const lc = lineChart(d.revenueTrend.labels, d.revenueTrend.values, {fmt:fmtMoney});
+  document.getElementById('lineChartWrap').innerHTML = lc.svg;
+  attachLineTooltip(document.getElementById('lineChartWrap'), lc.pts, fmtMoney);
+
+  document.getElementById('barChartWrap').innerHTML = hBarChart(woItems);
+  attachBarTooltip(document.getElementById('barChartWrap'), woItems);
+}
+
+/* ================= MASTER: CUSTOMER ================= */
+async function renderCustomer(){
+  setMain(skeletonRows(4));
+  const res = await apiGet('listCustomer');
+  const data = res.data || [];
+  setMain(`
+    <div class="page-head"><div><h2>Customer</h2><p>Master data pelanggan (${data.length} total)</p></div>
+      <button class="btn" onclick="formCustomer()">${icon('plus')} Tambah Customer</button></div>
+    <div class="panel">${dataTable({
+      id:'cust', rows:data, searchKeys:['Nama','NoHP','Email'],
+      columns:[
+        {key:'CustomerID', label:'ID'}, {key:'Nama', label:'Nama'}, {key:'NoHP', label:'No HP'},
+        {key:'Email', label:'Email', render:c=>esc(c.Email||'-')}, {key:'Alamat', label:'Alamat', render:c=>esc(c.Alamat||'-')}
+      ],
+      rowActions:c=>`<button class="btn ghost sm" onclick='formCustomer(${JSON.stringify(c)})'>${icon('edit')} Edit</button>`
+    })}</div>
+  `);
+  initTable('cust');
+}
+function formCustomer(c){
+  c = c || {};
+  openDrawer(`
+    <div class="drawer-head"><h3>${c.CustomerID? 'Edit':'Tambah'} Customer</h3><button class="drawer-close" onclick="closeDrawer()">&times;</button></div>
+    <div class="drawer-body">
+      <label>Nama</label><input id="f_nama" value="${esc(c.Nama||'')}">
+      <label>No HP</label><input id="f_hp" value="${esc(c.NoHP||'')}">
+      <label>Email</label><input id="f_email" value="${esc(c.Email||'')}">
+      <label>Alamat</label><textarea id="f_alamat">${esc(c.Alamat||'')}</textarea>
+    </div>
+    <div class="drawer-foot"><button class="btn secondary" onclick="closeDrawer()">Batal</button>
+    <button class="btn" onclick="saveCustomer('${c.CustomerID||''}')">Simpan</button></div>
+  `);
+}
+async function saveCustomer(id){
+  const payload = { CustomerID:id, Nama:val('f_nama'), NoHP:val('f_hp'), Email:val('f_email'), Alamat:val('f_alamat') };
+  const res = await apiPost('saveCustomer', payload);
+  if(res.success){ toast('Customer tersimpan'); closeDrawer(); renderCustomer(); } else toast(res.message,true);
+}
+
+/* ================= MASTER: VEHICLE ================= */
+async function renderVehicle(){
+  setMain(skeletonRows(4));
+  const [vres,cres] = await Promise.all([apiGet('listVehicle'), apiGet('listCustomer')]);
+  const data = vres.data||[]; const customers = cres.data||[];
+  window.__customers = customers;
+  const enriched = data.map(v=>({...v, __custName: (customers.find(c=>c.CustomerID===v.CustomerID)||{}).Nama || v.CustomerID}));
+  setMain(`
+    <div class="page-head"><div><h2>Vehicle</h2><p>Master data kendaraan (${data.length} total)</p></div>
+      <button class="btn" onclick="formVehicle()">${icon('plus')} Tambah Vehicle</button></div>
+    <div class="panel">${dataTable({
+      id:'veh', rows:enriched, searchKeys:['NoPolisi','__custName','Brand','Model'],
+      columns:[
+        {key:'VehicleID', label:'ID'}, {key:'NoPolisi', label:'No Polisi'}, {key:'__custName', label:'Customer'},
+        {key:'Brand', label:'Brand/Model', render:v=>esc((v.Brand||'')+' '+(v.Model||''))},
+        {key:'TahunKendaraan', label:'Tahun', render:v=>esc(v.TahunKendaraan||'-')}
+      ],
+      rowActions:v=>`<button class="btn ghost sm" onclick='formVehicle(${JSON.stringify(v)})'>${icon('edit')} Edit</button>`
+    })}</div>
+  `);
+  initTable('veh');
+}
+function formVehicle(v){
+  v = v || {};
+  const custOptions = (window.__customers||[]).map(c=>`<option value="${c.CustomerID}" ${v.CustomerID===c.CustomerID?'selected':''}>${esc(c.Nama)}</option>`).join('');
+  openDrawer(`
+    <div class="drawer-head"><h3>${v.VehicleID? 'Edit':'Tambah'} Vehicle</h3><button class="drawer-close" onclick="closeDrawer()">&times;</button></div>
+    <div class="drawer-body">
+      <label>Customer</label><select id="f_cust">${custOptions}</select>
+      <label>No Polisi</label><input id="f_pol" value="${esc(v.NoPolisi||'')}">
+      <div class="grid3">
+        <div><label>No Rangka</label><input id="f_rangka" value="${esc(v.NoRangka||'')}"></div>
+        <div><label>No Mesin</label><input id="f_mesin" value="${esc(v.NoMesin||'')}"></div>
+        <div><label>Tahun</label><input id="f_tahun" value="${esc(v.TahunKendaraan||'')}"></div>
+        <div><label>Brand</label><input id="f_brand" value="${esc(v.Brand||'')}"></div>
+        <div><label>Model</label><input id="f_model" value="${esc(v.Model||'')}"></div>
+        <div><label>Warna</label><input id="f_warna" value="${esc(v.Warna||'')}"></div>
+      </div>
+    </div>
+    <div class="drawer-foot"><button class="btn secondary" onclick="closeDrawer()">Batal</button>
+    <button class="btn" onclick="saveVehicle('${v.VehicleID||''}')">Simpan</button></div>
+  `);
+}
+async function saveVehicle(id){
+  const payload = { VehicleID:id, CustomerID:val('f_cust'), NoPolisi:val('f_pol'), NoRangka:val('f_rangka'),
+    NoMesin:val('f_mesin'), Brand:val('f_brand'), Model:val('f_model'), TahunKendaraan:val('f_tahun'), Warna:val('f_warna') };
+  const res = await apiPost('saveVehicle', payload);
+  if(res.success){ toast('Vehicle tersimpan'); closeDrawer(); renderVehicle(); } else toast(res.message,true);
+}
+
+/* ================= MASTER: PART ================= */
+async function renderPartMaster(){
+  setMain(skeletonRows(4));
+  const res = await apiGet('listPart');
+  const data = res.data||[];
+  window.__parts = data;
+  const lowCount = data.filter(p=>Number(p.StokAkhir)<=Number(p.StokMinimum)).length;
+  setMain(`
+    <div class="page-head"><div><h2>Part Master</h2><p>Master data sparepart & stok real-time (${data.length} part, ${lowCount} stok rendah)</p></div>
+      <button class="btn" onclick="formPart()">${icon('plus')} Tambah Part</button></div>
+    <div class="panel">${dataTable({
+      id:'part', rows:data, searchKeys:['PartNumber','PartName','Kategori'],
+      columns:[
+        {key:'PartNumber', label:'Part No'}, {key:'PartName', label:'Nama'}, {key:'Kategori', label:'Kategori', render:p=>esc(p.Kategori||'-')},
+        {key:'HargaJual', label:'Harga Jual', numeric:true, render:p=>fmtMoneyFull(p.HargaJual)},
+        {key:'StokAkhir', label:'Stok', numeric:true, render:p=>Number(p.StokAkhir)<=Number(p.StokMinimum)?`<span class="badge critical"><span class="dot"></span>${p.StokAkhir}</span>`:p.StokAkhir},
+        {key:'StokMinimum', label:'Min', numeric:true}
+      ],
+      rowActions:p=>`<button class="btn ghost sm" onclick='formPart(${JSON.stringify(p)})'>${icon('edit')} Edit</button>`
+    })}</div>
+  `);
+  initTable('part');
+}
+function formPart(p){
+  p = p || {};
+  openDrawer(`
+    <div class="drawer-head"><h3>${p.PartNumber? 'Edit':'Tambah'} Part</h3><button class="drawer-close" onclick="closeDrawer()">&times;</button></div>
+    <div class="drawer-body">
+      <label>Part Number</label><input id="f_pn" value="${esc(p.PartNumber||'')}" ${p.PartNumber?'disabled':''}>
+      <label>Nama Part</label><input id="f_pname" value="${esc(p.PartName||'')}">
+      <div class="grid3">
+        <div><label>Kategori</label><input id="f_kat" value="${esc(p.Kategori||'')}"></div>
+        <div><label>Satuan</label><input id="f_satuan" value="${esc(p.Satuan||'PCS')}"></div>
+        <div><label>Lokasi Rak</label><input id="f_lokasi" value="${esc(p.Lokasi||'')}"></div>
+        <div><label>Harga Beli</label><input id="f_hbeli" type="number" value="${p.HargaBeli||0}"></div>
+        <div><label>Harga Jual</label><input id="f_hjual" type="number" value="${p.HargaJual||0}"></div>
+        <div><label>Stok Minimum</label><input id="f_stokmin" type="number" value="${p.StokMinimum||0}"></div>
+      </div>
+      <label>${p.PartNumber?'Stok Saat Ini (readonly, ubah lewat Inbound/Outbound)':'Stok Awal'}</label>
+      <input id="f_stokawal" type="number" value="${p.StokAkhir||0}" ${p.PartNumber?'disabled':''}>
+    </div>
+    <div class="drawer-foot"><button class="btn secondary" onclick="closeDrawer()">Batal</button>
+    <button class="btn" onclick="savePart()">Simpan</button></div>
+  `);
+}
+async function savePart(){
+  const payload = { PartNumber:val('f_pn'), PartName:val('f_pname'), Kategori:val('f_kat'), Satuan:val('f_satuan'),
+    HargaBeli:val('f_hbeli'), HargaJual:val('f_hjual'), StokMinimum:val('f_stokmin'), StokAwal:val('f_stokawal'), Lokasi:val('f_lokasi') };
+  const res = await apiPost('savePart', payload);
+  if(res.success){ toast('Part tersimpan'); closeDrawer(); renderPartMaster(); } else toast(res.message,true);
+}
+
+/* ================= MASTER: LABOR ================= */
+async function renderLaborMaster(){
+  setMain(skeletonRows(4));
+  const res = await apiGet('listLabor');
+  const data = res.data||[];
+  window.__labors = data;
+  setMain(`
+    <div class="page-head"><div><h2>Labor Master</h2><p>Master data jasa/labor (${data.length} total)</p></div>
+      <button class="btn" onclick="formLabor()">${icon('plus')} Tambah Labor</button></div>
+    <div class="panel">${dataTable({
+      id:'labor', rows:data, searchKeys:['LaborCode','LaborName','Kategori'],
+      columns:[
+        {key:'LaborCode', label:'Kode'}, {key:'LaborName', label:'Nama Jasa'}, {key:'Kategori', label:'Kategori', render:l=>esc(l.Kategori||'-')},
+        {key:'Harga', label:'Harga', numeric:true, render:l=>fmtMoneyFull(l.Harga)},
+        {key:'EstimasiMenit', label:'Est. Menit', numeric:true, render:l=>l.EstimasiMenit||'-'}
+      ],
+      rowActions:l=>`<button class="btn ghost sm" onclick='formLabor(${JSON.stringify(l)})'>${icon('edit')} Edit</button>`
+    })}</div>
+  `);
+  initTable('labor');
+}
+function formLabor(l){
+  l = l || {};
+  openDrawer(`
+    <div class="drawer-head"><h3>${l.LaborCode? 'Edit':'Tambah'} Labor</h3><button class="drawer-close" onclick="closeDrawer()">&times;</button></div>
+    <div class="drawer-body">
+      <label>Kode Labor</label><input id="f_lc" value="${esc(l.LaborCode||'')}" ${l.LaborCode?'disabled':''}>
+      <label>Nama Jasa</label><input id="f_lname" value="${esc(l.LaborName||'')}">
+      <div class="grid3">
+        <div><label>Kategori</label><input id="f_lkat" value="${esc(l.Kategori||'')}"></div>
+        <div><label>Harga</label><input id="f_lharga" type="number" value="${l.Harga||0}"></div>
+        <div><label>Estimasi Menit</label><input id="f_lest" type="number" value="${l.EstimasiMenit||0}"></div>
+      </div>
+    </div>
+    <div class="drawer-foot"><button class="btn secondary" onclick="closeDrawer()">Batal</button>
+    <button class="btn" onclick="saveLabor()">Simpan</button></div>
+  `);
+}
+async function saveLabor(){
+  const payload = { LaborCode:val('f_lc'), LaborName:val('f_lname'), Kategori:val('f_lkat'), Harga:val('f_lharga'), EstimasiMenit:val('f_lest') };
+  const res = await apiPost('saveLabor', payload);
+  if(res.success){ toast('Labor tersimpan'); closeDrawer(); renderLaborMaster(); } else toast(res.message,true);
+}
+
+/* ================= WORK ORDER (KANBAN + LIST) ================= */
+let woCart = { parts:[], labors:[] };
+let woViewMode = 'kanban';
+const WO_FLOW = ['New','Dispatching','Material Picking','Completed','Invoice','Vehicle Delivery'];
+
+async function renderWorkOrder(){
+  setMain(skeletonRows(4));
+  const res = await apiGet('listWorkOrder');
+  window.__woData = (res.data||[]).sort((a,b)=> new Date(b.CreatedAt)-new Date(a.CreatedAt));
+  drawWorkOrderView();
+}
+function drawWorkOrderView(){
+  const data = window.__woData || [];
+  setMain(`
+    <div class="page-head">
+      <div><h2>Work Order</h2><p>General Repair / Body Repair — ${data.length} WO aktif</p></div>
+      <div style="display:flex;gap:10px;">
+        <div class="view-toggle">
+          <button class="${woViewMode==='kanban'?'active':''}" onclick="woViewMode='kanban';drawWorkOrderView()">Board</button>
+          <button class="${woViewMode==='list'?'active':''}" onclick="woViewMode='list';drawWorkOrderView()">List</button>
+        </div>
+        <button class="btn" onclick="formWorkOrder()">${icon('plus')} Buat Work Order</button>
+      </div>
+    </div>
+    <div id="woBody"></div>
+  `);
+  if(woViewMode==='kanban') drawKanban(data); else drawWOList(data);
+}
+function drawKanban(data){
+  const el = document.getElementById('woBody');
+  el.innerHTML = `<div class="kanban">${WO_FLOW.map(status=>{
+    const items = data.filter(w=>w.Status===status);
+    return `<div class="kanban-col" data-status="${status}">
+      <h4><span class="badge ${WO_STATUS_SLOT[status]}"><span class="dot"></span></span>${status}<span class="count">${items.length}</span></h4>
+      <div class="kcards" data-status="${status}">
+        ${items.map(w=>`
+          <div class="kcard" draggable="true" data-woid="${w.WOID}" onclick="viewWorkOrder('${w.WOID}')">
+            <div class="woid">${w.WOID}</div>
+            <div class="cust">${esc(w.NamaCustomer)}</div>
+            <div class="plate">${esc(w.NoPolisi)} · ${esc(w.JenisWO)}</div>
+            <div class="foot"><span class="total">${fmtMoney(w.TotalWO)}</span></div>
+          </div>`).join('')}
+      </div>
+    </div>`;
+  }).join('')}</div>`;
+
+  // drag & drop
+  el.querySelectorAll('.kcard').forEach(card=>{
+    card.addEventListener('dragstart', e=>{ card.classList.add('dragging'); e.dataTransfer.setData('text/plain', card.dataset.woid); });
+    card.addEventListener('dragend', ()=> card.classList.remove('dragging'));
+  });
+  el.querySelectorAll('.kanban-col').forEach(col=>{
+    col.addEventListener('dragover', e=>{ e.preventDefault(); col.classList.add('dragover'); });
+    col.addEventListener('dragleave', ()=> col.classList.remove('dragover'));
+    col.addEventListener('drop', async e=>{
+      e.preventDefault(); col.classList.remove('dragover');
+      const woid = e.dataTransfer.getData('text/plain');
+      const newStatus = col.dataset.status;
+      const wo = (window.__woData||[]).find(w=>w.WOID===woid);
+      if(!wo || wo.Status===newStatus) return;
+      const curIdx = WO_FLOW.indexOf(wo.Status), newIdx = WO_FLOW.indexOf(newStatus);
+      if(newIdx < curIdx){ toast('Tidak bisa mundur status WO', true); return; }
+      const res = await apiPost('updateWorkOrderStatus', {WOID:woid, Status:newStatus});
+      if(res.success){ toast(`${woid} -> ${newStatus}`); renderWorkOrder(); } else toast(res.message, true);
+    });
+  });
+}
+function drawWOList(data){
+  document.getElementById('woBody').innerHTML = `<div class="panel">${dataTable({
+    id:'wo', rows:data, searchKeys:['WOID','NamaCustomer','NoPolisi'],
+    columns:[
+      {key:'WOID', label:'WO ID'}, {key:'TglWO', label:'Tgl', render:w=>fmtDate(w.TglWO)},
+      {key:'NamaCustomer', label:'Customer'}, {key:'NoPolisi', label:'No Polisi'}, {key:'JenisWO', label:'Jenis'},
+      {key:'Status', label:'Status', render:w=>statusBadge(w.Status)},
+      {key:'TotalWO', label:'Total', numeric:true, render:w=>fmtMoneyFull(w.TotalWO)}
+    ],
+    rowActions:w=>`<button class="btn ghost sm" onclick="viewWorkOrder('${w.WOID}')">Detail</button>`
+  })}</div>`;
+  initTable('wo');
+}
+
+async function formWorkOrder(){
+  const [cres,vres,pres,lres] = await Promise.all([apiGet('listCustomer'),apiGet('listVehicle'),apiGet('listPart'),apiGet('listLabor')]);
+  window.__customers = cres.data||[]; window.__vehicles = vres.data||[]; window.__parts = pres.data||[]; window.__labors = lres.data||[];
+  woCart = { parts:[], labors:[] };
+  const custOptions = window.__customers.map(c=>`<option value="${c.CustomerID}">${esc(c.Nama)}</option>`).join('');
+  openDrawer(`
+    <div class="drawer-head"><h3>Buat Work Order</h3><button class="drawer-close" onclick="closeDrawer()">&times;</button></div>
+    <div class="drawer-body">
+      <div class="grid3">
+        <div><label>Customer</label><select id="wo_cust" onchange="fillVehicleOptions()">${custOptions}</select></div>
+        <div><label>Vehicle</label><select id="wo_veh"></select></div>
+        <div><label>Jenis WO</label><select id="wo_jenis"><option>General Repair</option><option>Body Repair</option></select></div>
+        <div><label>SA</label><input id="wo_sa"></div>
+        <div><label>Mekanik</label><input id="wo_mekanik"></div>
+        <div><label>KM</label><input id="wo_km" type="number"></div>
+      </div>
+      <label>Keluhan</label><textarea id="wo_keluhan"></textarea>
+      <h3 style="font-size:13.5px;margin-bottom:8px;">Part (dari Part Master)</h3>
+      <div class="row-line">
+        <select id="wo_part_select" style="flex:2">${window.__parts.map(p=>`<option value="${p.PartNumber}">${esc(p.PartNumber)} - ${esc(p.PartName)} (stok:${p.StokAkhir})</option>`).join('')}</select>
+        <input id="wo_part_qty" type="number" value="1" style="width:64px">
+        <button class="btn secondary sm" onclick="addWOPart()">+ Add</button>
+      </div>
+      <div id="wo_part_list" class="chip-list"></div>
+      <h3 style="font-size:13.5px;margin-bottom:8px;">Labor (dari Labor Master)</h3>
+      <div class="row-line">
+        <select id="wo_labor_select" style="flex:2">${window.__labors.map(l=>`<option value="${l.LaborCode}">${esc(l.LaborCode)} - ${esc(l.LaborName)}</option>`).join('')}</select>
+        <input id="wo_labor_qty" type="number" value="1" style="width:64px">
+        <button class="btn secondary sm" onclick="addWOLabor()">+ Add</button>
+      </div>
+      <div id="wo_labor_list" class="chip-list"></div>
+      <div class="panel" style="margin-top:10px;background:var(--surface-2);"><div class="kv"><span>Estimasi Total</span><b id="wo_total_preview">Rp 0</b></div></div>
+    </div>
+    <div class="drawer-foot"><button class="btn secondary" onclick="closeDrawer()">Batal</button>
+    <button class="btn" onclick="submitWorkOrder()">Simpan Work Order</button></div>
+  `);
+  fillVehicleOptions();
+  renderWOLists();
+}
+function fillVehicleOptions(){
+  const custId = val('wo_cust');
+  const vehicles = (window.__vehicles||[]).filter(v=>v.CustomerID===custId);
+  document.getElementById('wo_veh').innerHTML = vehicles.map(v=>`<option value="${v.VehicleID}">${esc(v.NoPolisi)} - ${esc(v.Brand)} ${esc(v.Model)}</option>`).join('') || '<option value="">(tidak ada kendaraan)</option>';
+}
+function addWOPart(){
+  const pn = val('wo_part_select'); const qty = Number(val('wo_part_qty'))||1;
+  const part = window.__parts.find(p=>p.PartNumber===pn);
+  woCart.parts.push({PartNumber:pn, PartName:part.PartName, Qty:qty, Harga:part.HargaJual});
+  renderWOLists();
+}
+function removeWOPart(i){ woCart.parts.splice(i,1); renderWOLists(); }
+function addWOLabor(){
+  const lc = val('wo_labor_select'); const qty = Number(val('wo_labor_qty'))||1;
+  const labor = window.__labors.find(l=>l.LaborCode===lc);
+  woCart.labors.push({LaborCode:lc, LaborName:labor.LaborName, Qty:qty, Harga:labor.Harga});
+  renderWOLists();
+}
+function removeWOLabor(i){ woCart.labors.splice(i,1); renderWOLists(); }
+function renderWOLists(){
+  document.getElementById('wo_part_list').innerHTML = woCart.parts.map((p,i)=>`<div class="chip">${esc(p.PartName)} ×${p.Qty} — ${fmtMoneyFull(p.Harga*p.Qty)}<button onclick="removeWOPart(${i})">&times;</button></div>`).join('') || '<span class="muted" style="font-size:12px;">Belum ada part.</span>';
+  document.getElementById('wo_labor_list').innerHTML = woCart.labors.map((l,i)=>`<div class="chip">${esc(l.LaborName)} ×${l.Qty} — ${fmtMoneyFull(l.Harga*l.Qty)}<button onclick="removeWOLabor(${i})">&times;</button></div>`).join('') || '<span class="muted" style="font-size:12px;">Belum ada jasa.</span>';
+  const total = woCart.parts.reduce((s,p)=>s+p.Harga*p.Qty,0) + woCart.labors.reduce((s,l)=>s+l.Harga*l.Qty,0);
+  const totalEl = document.getElementById('wo_total_preview'); if(totalEl) totalEl.textContent = fmtMoneyFull(total);
+}
+async function submitWorkOrder(){
+  const payload = {
+    CustomerID: val('wo_cust'), VehicleID: val('wo_veh'), JenisWO: val('wo_jenis'),
+    SA: val('wo_sa'), Mekanik: val('wo_mekanik'), KM: val('wo_km'), Keluhan: val('wo_keluhan'),
+    parts: woCart.parts.map(p=>({PartNumber:p.PartNumber, Qty:p.Qty})),
+    labors: woCart.labors.map(l=>({LaborCode:l.LaborCode, Qty:l.Qty}))
+  };
+  const res = await apiPost('createWorkOrder', payload);
+  if(res.success){ toast('Work Order dibuat: '+res.id); closeDrawer(); renderWorkOrder(); } else toast(res.message,true);
+}
+async function viewWorkOrder(woid){
+  const res = await apiGet('getWorkOrder', {id:woid});
+  if(!res.success){ toast(res.message,true); return; }
+  const {header, parts, labors} = res.data;
+  const curIdx = WO_FLOW.indexOf(header.Status);
+  const nextStatus = WO_FLOW[curIdx+1];
+  const stepperHtml = `<div class="stepper">${WO_FLOW.map((s,i)=>`
+    <div class="step ${i<curIdx?'done':''} ${i===curIdx?'current':''}">
+      <div class="circle">${i<curIdx?'✓':i+1}</div><div class="stitle">${s}</div>
+    </div>`).join('')}</div>`;
+  openDrawer(`
+    <div class="drawer-head"><h3>Work Order ${header.WOID}</h3><button class="drawer-close" onclick="closeDrawer()">&times;</button></div>
+    <div class="drawer-body">
+      ${stepperHtml}
+      <div class="grid3">
+        <div class="kv"><span>Customer</span><b>${esc(header.NamaCustomer)}</b></div>
+        <div class="kv"><span>No Polisi</span><b>${esc(header.NoPolisi)}</b></div>
+        <div class="kv"><span>Jenis WO</span><b>${esc(header.JenisWO)}</b></div>
+        <div class="kv"><span>SA</span><b>${esc(header.SA)||'-'}</b></div>
+        <div class="kv"><span>Mekanik</span><b>${esc(header.Mekanik)||'-'}</b></div>
+        <div class="kv"><span>KM</span><b>${esc(header.KM)||'-'}</b></div>
+      </div>
+      <p class="muted" style="font-size:13px;">Keluhan: ${esc(header.Keluhan)||'-'}</p>
+      <h3 style="font-size:13.5px;">Part</h3>
+      <table><tr><th>Part</th><th>Qty</th><th>Harga</th><th>Subtotal</th><th>Status</th></tr>
+        ${parts.map(p=>`<tr><td>${esc(p.PartName)}</td><td>${p.Qty}</td><td>${fmtMoneyFull(p.HargaSatuan)}</td><td>${fmtMoneyFull(p.Subtotal)}</td><td><span class="badge ${p.StatusPicking==='Picked'?'good':'muted'}"><span class="dot"></span>${p.StatusPicking}</span></td></tr>`).join('') || `<tr><td colspan="5">${emptyState('Tidak ada part')}</td></tr>`}
+      </table>
+      <h3 style="font-size:13.5px;">Labor</h3>
+      <table><tr><th>Jasa</th><th>Qty</th><th>Harga</th><th>Subtotal</th></tr>
+        ${labors.map(l=>`<tr><td>${esc(l.LaborName)}</td><td>${l.Qty}</td><td>${fmtMoneyFull(l.HargaSatuan)}</td><td>${fmtMoneyFull(l.Subtotal)}</td></tr>`).join('') || `<tr><td colspan="4">${emptyState('Tidak ada labor')}</td></tr>`}
+      </table>
+      <div class="kv" style="font-size:15px;margin-top:8px;"><span>Total Work Order</span><b>${fmtMoneyFull(header.TotalWO)}</b></div>
+      ${header.Status==='Material Picking' ? `<p class="sub" style="margin-top:8px;">ℹ Saat masuk status ini, stok part otomatis berkurang (Outbound Part).</p>`:''}
+    </div>
+    <div class="drawer-foot">
+      <button class="btn secondary" onclick="closeDrawer()">Tutup</button>
+      ${nextStatus ? `<button class="btn good" onclick="advanceWO('${header.WOID}','${nextStatus}')">${icon('approve')} Set: ${nextStatus}</button>` : '<span class="muted">Selesai</span>'}
+    </div>
+  `);
+}
+async function advanceWO(woid, status){
+  const res = await apiPost('updateWorkOrderStatus', {WOID:woid, Status:status});
+  if(res.success){ toast('Status diperbarui ke '+status); closeDrawer(); renderWorkOrder(); } else toast(res.message,true);
+}
+
+/* ================= INVENTORY: PO CREATED ================= */
+let poCart = [];
+async function renderPOCreated(){
+  setMain(skeletonRows(4));
+  const res = await apiGet('listPO');
+  const data = (res.data||[]).sort((a,b)=>new Date(b.CreatedAt)-new Date(a.CreatedAt));
+  setMain(`
+    <div class="page-head"><div><h2>PO Created</h2><p>Buat & kelola Purchase Order ke supplier</p></div>
+      <button class="btn" onclick="formPO()">${icon('plus')} Buat PO</button></div>
+    <div class="panel">${dataTable({
+      id:'po', rows:data, searchKeys:['PONumber','Supplier'],
+      columns:[
+        {key:'PONumber', label:'PO Number'}, {key:'TglPO', label:'Tgl', render:p=>fmtDate(p.TglPO)},
+        {key:'Supplier', label:'Supplier'}, {key:'Status', label:'Status', render:p=>statusBadge(p.Status, PO_STATUS_BADGE)},
+        {key:'TotalPO', label:'Total', numeric:true, render:p=>fmtMoneyFull(p.TotalPO)}
+      ],
+      rowActions:p=>`<button class="btn ghost sm" onclick="viewPO('${p.PONumber}')">Detail</button>`
+    })}</div>
+  `);
+  initTable('po');
+}
+async function formPO(){
+  const pres = await apiGet('listPart'); window.__parts = pres.data||[];
+  poCart = [];
+  openDrawer(`
+    <div class="drawer-head"><h3>Buat PO</h3><button class="drawer-close" onclick="closeDrawer()">&times;</button></div>
+    <div class="drawer-body">
+      <div class="grid2">
+        <div><label>Supplier</label><input id="po_supplier"></div>
+        <div><label>Requested By</label><input id="po_reqby"></div>
+      </div>
+      <label>Catatan</label><textarea id="po_catatan"></textarea>
+      <h3 style="font-size:13.5px;">Detail Part</h3>
+      <div class="row-line">
+        <select id="po_part_select" style="flex:2">${window.__parts.map(p=>`<option value="${p.PartNumber}">${esc(p.PartNumber)} - ${esc(p.PartName)}</option>`).join('')}</select>
+        <input id="po_part_qty" type="number" value="1" style="width:60px">
+        <input id="po_part_harga" type="number" placeholder="Harga" style="width:100px">
+        <button class="btn secondary sm" onclick="addPOPart()">+ Add</button>
+      </div>
+      <div id="po_part_list" class="chip-list"></div>
+      <div class="panel" style="margin-top:6px;background:var(--surface-2);"><div class="kv"><span>Estimasi Total PO</span><b id="po_total_preview">Rp 0</b></div></div>
+    </div>
+    <div class="drawer-foot"><button class="btn secondary" onclick="closeDrawer()">Batal</button>
+    <button class="btn" onclick="submitPO()">Simpan PO</button></div>
+  `);
+}
+function addPOPart(){
+  const pn = val('po_part_select'); const qty = Number(val('po_part_qty'))||1;
+  const part = window.__parts.find(p=>p.PartNumber===pn);
+  const harga = Number(val('po_part_harga')) || Number(part.HargaBeli) || 0;
+  poCart.push({PartNumber:pn, PartName:part.PartName, QtyOrder:qty, HargaSatuan:harga});
+  renderPOCart();
+}
+function removePOPart(i){ poCart.splice(i,1); renderPOCart(); }
+function renderPOCart(){
+  document.getElementById('po_part_list').innerHTML = poCart.map((p,i)=>`<div class="chip">${esc(p.PartName)} ×${p.QtyOrder} — ${fmtMoneyFull(p.HargaSatuan*p.QtyOrder)}<button onclick="removePOPart(${i})">&times;</button></div>`).join('') || '<span class="muted" style="font-size:12px;">Belum ada part.</span>';
+  const total = poCart.reduce((s,p)=>s+p.HargaSatuan*p.QtyOrder,0);
+  const el = document.getElementById('po_total_preview'); if(el) el.textContent = fmtMoneyFull(total);
+}
+async function submitPO(){
+  const payload = { Supplier: val('po_supplier'), RequestedBy: val('po_reqby'), Catatan: val('po_catatan'), details: poCart };
+  const res = await apiPost('createPO', payload);
+  if(res.success){ toast('PO dibuat: '+res.id); closeDrawer(); renderPOCreated(); } else toast(res.message,true);
+}
+async function viewPO(ponumber){
+  const res = await apiGet('getPO', {id:ponumber});
+  if(!res.success){ toast(res.message,true); return; }
+  const {header, details} = res.data;
+  const stages = ['PO Created','Approval PO','Received'];
+  const curIdx = header.Status==='Rejected' ? -1 : stages.indexOf(header.Status)>=0 ? stages.indexOf(header.Status) : (header.Status==='Partial Received'?1.5:0);
+  openDrawer(`
+    <div class="drawer-head"><h3>PO ${header.PONumber}</h3><button class="drawer-close" onclick="closeDrawer()">&times;</button></div>
+    <div class="drawer-body">
+      ${header.Status==='Rejected' ? `<div class="badge critical" style="margin-bottom:14px;"><span class="dot"></span>PO Ditolak</div>` : `
+      <div class="stepper">${stages.map((s,i)=>`<div class="step ${i<curIdx?'done':''} ${i===Math.floor(curIdx) && curIdx%1!==0 ? '':i===curIdx?'current':''}"><div class="circle">${i<curIdx?'✓':i+1}</div><div class="stitle">${s}</div></div>`).join('')}</div>`}
+      <div class="grid2">
+        <div class="kv"><span>Supplier</span><b>${esc(header.Supplier)}</b></div>
+        <div class="kv"><span>Requested By</span><b>${esc(header.RequestedBy)}</b></div>
+        <div class="kv"><span>Approved By</span><b>${esc(header.ApprovedBy)||'-'}</b></div>
+        <div class="kv"><span>Status</span><b>${statusBadge(header.Status, PO_STATUS_BADGE)}</b></div>
+      </div>
+      <table><tr><th>Part</th><th>Qty Order</th><th>Qty Diterima</th><th>Harga</th><th>Subtotal</th></tr>
+        ${details.map(d=>`<tr><td>${esc(d.PartName)}</td><td>${d.QtyOrder}</td><td>${d.QtyDiterima||0}</td><td>${fmtMoneyFull(d.HargaSatuan)}</td><td>${fmtMoneyFull(d.Subtotal)}</td></tr>`).join('')}
+      </table>
+      <div class="kv" style="font-size:15px;"><span>Total PO</span><b>${fmtMoneyFull(header.TotalPO)}</b></div>
+    </div>
+    <div class="drawer-foot"><button class="btn secondary" onclick="closeDrawer()">Tutup</button></div>
+  `);
+}
+
+/* ================= INVENTORY: APPROVAL PO ================= */
+async function renderPOApproval(){
+  setMain(skeletonRows(3));
+  const res = await apiGet('listPO');
+  const data = (res.data||[]).filter(p=>p.Status==='PO Created');
+  setMain(`
+    <div class="page-head"><div><h2>Approval PO</h2><p>${data.length} PO menunggu persetujuan</p></div></div>
+    <div class="panel">
+      ${data.length===0 ? emptyState('Tidak ada PO menunggu approval.') : `<table><tr><th>PO Number</th><th>Tgl</th><th>Supplier</th><th>Total</th><th></th></tr>
+      ${data.map(p=>`<tr><td>${esc(p.PONumber)}</td><td>${fmtDate(p.TglPO)}</td><td>${esc(p.Supplier)}</td><td class="num">${fmtMoneyFull(p.TotalPO)}</td>
+        <td><button class="btn good sm" onclick="doApprovePO('${p.PONumber}')">${icon('approve')} Approve</button>
+        <button class="btn critical sm" onclick="doRejectPO('${p.PONumber}')">Reject</button></td></tr>`).join('')}
+      </table>`}
+    </div>
+  `);
+}
+async function doApprovePO(ponumber){
+  const approver = prompt('Nama Approver:');
+  if(!approver) return;
+  const res = await apiPost('approvePO', {PONumber:ponumber, ApprovedBy:approver});
+  if(res.success){ toast('PO disetujui'); renderPOApproval(); } else toast(res.message,true);
+}
+async function doRejectPO(ponumber){
+  const alasan = prompt('Alasan reject:');
+  const res = await apiPost('rejectPO', {PONumber:ponumber, Alasan:alasan||''});
+  if(res.success){ toast('PO direject'); renderPOApproval(); } else toast(res.message,true);
+}
+
+/* ================= INVENTORY: PENERIMAAN PART ================= */
+async function renderPenerimaan(){
+  setMain(skeletonRows(3));
+  const [gres,pres] = await Promise.all([apiGet('listPenerimaan'), apiGet('listPO')]);
+  const grData = (gres.data||[]).sort((a,b)=>new Date(b.CreatedAt)-new Date(a.CreatedAt));
+  const readyPO = (pres.data||[]).filter(p=>p.Status==='Approval PO' || p.Status==='Partial Received');
+  window.__readyPO = readyPO;
+  setMain(`
+    <div class="page-head"><div><h2>Penerimaan Part</h2><p>Terima barang dari PO yang sudah disetujui (${readyPO.length} PO siap diterima)</p></div>
+      <button class="btn" onclick="formPenerimaan()" ${readyPO.length===0?'disabled':''}>${icon('plus')} Buat Penerimaan</button></div>
+    <div class="panel">
+      ${grData.length===0 ? emptyState('Belum ada penerimaan.') : `<table><tr><th>GR Number</th><th>PO Number</th><th>Tgl Terima</th><th>Status</th></tr>
+      ${grData.map(g=>`<tr><td>${esc(g.GRNumber)}</td><td>${esc(g.PONumber)}</td><td>${fmtDate(g.TglTerima)}</td><td>${statusBadge(g.Status,{Completed:'good',Partial:'warn'})}</td></tr>`).join('')}
+      </table>`}
+    </div>
+  `);
+}
+async function formPenerimaan(){
+  const options = window.__readyPO.map(p=>`<option value="${p.PONumber}">${esc(p.PONumber)} - ${esc(p.Supplier)}</option>`).join('');
+  openDrawer(`
+    <div class="drawer-head"><h3>Buat Penerimaan Part</h3><button class="drawer-close" onclick="closeDrawer()">&times;</button></div>
+    <div class="drawer-body">
+      <label>PO</label><select id="gr_po" onchange="loadPODetailForGR()">${options}</select>
+      <label>Diterima Oleh</label><input id="gr_diterima">
+      <div id="gr_detail_list"></div>
+      <label>Catatan</label><textarea id="gr_catatan"></textarea>
+    </div>
+    <div class="drawer-foot"><button class="btn secondary" onclick="closeDrawer()">Batal</button>
+    <button class="btn" onclick="submitPenerimaan()">Simpan Penerimaan</button></div>
+  `);
+  loadPODetailForGR();
+}
+async function loadPODetailForGR(){
+  const ponumber = val('gr_po');
+  const res = await apiGet('getPO', {id:ponumber});
+  const details = res.data.details;
+  window.__grDetails = details;
+  document.getElementById('gr_detail_list').innerHTML = `<h3 style="font-size:13.5px;">Detail Part</h3><table><tr><th>Part</th><th>Order</th><th>Diterima</th><th>Qty Sekarang</th><th>Kondisi</th></tr>
+    ${details.map((d,i)=>`<tr><td>${esc(d.PartName)}</td><td>${d.QtyOrder}</td><td>${d.QtyDiterima||0}</td>
+      <td><input type="number" id="gr_qty_${i}" value="${Math.max(0,d.QtyOrder-(d.QtyDiterima||0))}" style="width:64px;margin:0;"></td>
+      <td><select id="gr_kondisi_${i}" style="margin:0;"><option>Baik</option><option>Rusak</option></select></td></tr>`).join('')}
+    </table>`;
+}
+async function submitPenerimaan(){
+  const details = window.__grDetails.map((d,i)=>({
+    PartNumber: d.PartNumber, QtyDiterima: Number(val('gr_qty_'+i))||0, Kondisi: val('gr_kondisi_'+i)
+  })).filter(d=>d.QtyDiterima>0);
+  const payload = { PONumber: val('gr_po'), DiterimaOleh: val('gr_diterima'), Catatan: val('gr_catatan'), details };
+  const res = await apiPost('createPenerimaan', payload);
+  if(res.success){ toast('Penerimaan tersimpan: '+res.id); closeDrawer(); renderPenerimaan(); } else toast(res.message,true);
+}
+
+/* ================= INVENTORY: INBOUND / OUTBOUND MANUAL ================= */
+async function renderInboundManual(){ renderManualLedgerForm('Inbound'); }
+async function renderOutboundManual(){ renderManualLedgerForm('Outbound'); }
+async function renderManualLedgerForm(tipe){
+  setMain(skeletonRows(3));
+  const pres = await apiGet('listPart'); window.__parts = pres.data||[];
+  const listRes = await apiGet(tipe==='Inbound'?'listInboundHistory':'listOutboundHistory');
+  const recent = (listRes.data||[]).sort((a,b)=>new Date(b.CreatedAt)-new Date(a.CreatedAt)).slice(0,10);
+  setMain(`
+    <div class="page-head"><div><h2>${tipe} Part (Manual)</h2><p>${tipe==='Inbound'?'Tambah stok manual: retur, penyesuaian, dll':'Kurangi stok manual: retur ke supplier, kerusakan, penyesuaian, dll'}</p></div></div>
+    <div class="panel">
+      <div class="grid3">
+        <div><label>Part</label><select id="ml_part">${window.__parts.map(p=>`<option value="${p.PartNumber}">${esc(p.PartNumber)} - ${esc(p.PartName)} (stok:${p.StokAkhir})</option>`).join('')}</select></div>
+        <div><label>Qty</label><input id="ml_qty" type="number" value="1"></div>
+        <div><label>Sumber</label><input id="ml_sumber" placeholder="mis. Retur Customer / Adjustment"></div>
+      </div>
+      <label>Referensi</label><input id="ml_ref" placeholder="No dokumen (opsional)">
+      <label>Keterangan</label><textarea id="ml_ket"></textarea>
+      <button class="btn ${tipe==='Inbound'?'good':'critical'}" onclick="submitManualLedger('${tipe}')">${icon(tipe==='Inbound'?'inbound':'outbound')} Simpan ${tipe}</button>
+    </div>
+    <div class="panel">
+      <h3>10 Transaksi Terakhir</h3>
+      ${recent.length===0 ? emptyState('Belum ada transaksi') : `<table><tr><th>Tgl</th><th>Part</th><th>Qty</th><th>Sumber</th><th>Stok Sesudah</th></tr>
+      ${recent.map(r=>`<tr><td>${fmtDate(r.Tgl)}</td><td>${esc(r.PartName)}</td><td class="num">${r.Qty}</td><td>${esc(r.Sumber)}</td><td class="num">${r.StokSesudah}</td></tr>`).join('')}
+      </table>`}
+    </div>
+  `);
+}
+async function submitManualLedger(tipe){
+  const payload = { PartNumber: val('ml_part'), Qty: val('ml_qty'), Sumber: val('ml_sumber'), Reference: val('ml_ref'), Keterangan: val('ml_ket') };
+  const res = await apiPost(tipe==='Inbound'?'createInboundManual':'createOutboundManual', payload);
+  if(res.success){ toast(tipe+' tersimpan, stok akhir: '+res.stokAkhir); renderManualLedgerForm(tipe); } else toast(res.message,true);
+}
+
+/* ================= INVENTORY: HISTORY ================= */
+async function renderInboundHistory(){ renderHistory('Inbound'); }
+async function renderOutboundHistory(){ renderHistory('Outbound'); }
+async function renderHistory(tipe){
+  setMain(skeletonRows(4));
+  const res = await apiGet(tipe==='Inbound'?'listInboundHistory':'listOutboundHistory');
+  const data = (res.data||[]).sort((a,b)=>new Date(b.CreatedAt)-new Date(a.CreatedAt));
+  setMain(`
+    <div class="page-head"><div><h2>${tipe} History</h2><p>Riwayat lengkap transaksi ${tipe.toLowerCase()} (${data.length} transaksi)</p></div></div>
+    <div class="panel">${dataTable({
+      id:'hist'+tipe, rows:data, searchKeys:['PartNumber','PartName','Sumber','Reference'],
+      columns:[
+        {key:'Tgl', label:'Tgl', render:r=>fmtDate(r.Tgl)},
+        {key:'PartName', label:'Part', render:r=>`${esc(r.PartNumber)} - ${esc(r.PartName)}`},
+        {key:'Qty', label:'Qty', numeric:true},
+        {key:'Sumber', label:'Sumber'}, {key:'Reference', label:'Reference'},
+        {key:'StokSebelum', label:'Stok Sebelum', numeric:true},
+        {key:'StokSesudah', label:'Stok Sesudah', numeric:true}
+      ]
+    })}</div>
+  `);
+  initTable('hist'+tipe);
+}
+
+/* ================= KARTU STOK ================= */
+async function renderKartuStok(){
+  setMain(skeletonRows(3));
+  const pres = await apiGet('listPart'); window.__parts = pres.data||[];
+  setMain(`
+    <div class="page-head"><div><h2>Kartu Stok</h2><p>Riwayat mutasi per part — dihitung dari mutasi, bukan input manual</p></div></div>
+    <div class="panel">
+      <label>Pilih Part</label>
+      <select id="ks_part" onchange="loadKartuStok()">${window.__parts.map(p=>`<option value="${p.PartNumber}">${esc(p.PartNumber)} - ${esc(p.PartName)}</option>`).join('')}</select>
+    </div>
+    <div id="ks_result"></div>
+  `);
+  loadKartuStok();
+}
+async function loadKartuStok(){
+  const pn = val('ks_part');
+  const res = await apiGet('getKartuStok', {partNumber:pn});
+  if(!res.success){ document.getElementById('ks_result').innerHTML = `<div class="panel">${emptyState(res.message)}</div>`; return; }
+  const {part, history} = res.data;
+  const trendVals = history.slice(-12).map(h=>Number(h.StokSesudah));
+  const trendLabels = history.slice(-12).map(h=>fmtDate(h.Tgl));
+  document.getElementById('ks_result').innerHTML = `
+    <div class="cards">
+      <div class="stat-card"><div class="label">Stok Akhir</div><div class="value">${part.StokAkhir}</div></div>
+      <div class="stat-card"><div class="label">Stok Minimum</div><div class="value">${part.StokMinimum}</div></div>
+      <div class="stat-card"><div class="label">Lokasi</div><div class="value" style="font-size:16px;">${esc(part.Lokasi)||'-'}</div></div>
+    </div>
+    ${trendVals.length>1 ? `<div class="panel"><h3>Tren Stok (mutasi terakhir)</h3><div id="ks_line"></div></div>` : ''}
+    <div class="panel">
+      ${history.length===0 ? emptyState('Belum ada mutasi.') : `<table><tr><th>Tgl</th><th>Tipe</th><th>Qty</th><th>Sumber</th><th>Reference</th><th>Stok Sebelum</th><th>Stok Sesudah</th></tr>
+      ${history.slice().reverse().map(h=>`<tr><td>${fmtDate(h.Tgl)}</td><td><span class="badge ${h.Tipe==='Inbound'?'good':'critical'}"><span class="dot"></span>${h.Tipe}</span></td><td class="num">${h.Qty}</td><td>${esc(h.Sumber)}</td><td>${esc(h.Reference)}</td><td class="num">${h.StokSebelum}</td><td class="num">${h.StokSesudah}</td></tr>`).join('')}
+      </table>`}
+    </div>
+  `;
+  if(trendVals.length>1){
+    const lc = lineChart(trendLabels, trendVals);
+    document.getElementById('ks_line').innerHTML = lc.svg;
+    attachLineTooltip(document.getElementById('ks_line'), lc.pts);
+  }
+}
+
+/* ================= GLOBAL SEARCH (shortcut ke Kartu Stok / WO / PO) ================= */
+document.getElementById('globalSearch').addEventListener('keydown', async e=>{
+  if(e.key!=='Enter') return;
+  const q = e.target.value.trim();
+  if(!q) return;
+  toast('Mencari "'+q+'"...');
+  document.querySelectorAll('.nav-item').forEach(i=>i.classList.remove('active'));
+  document.querySelector('[data-view="partmaster"]').classList.add('active');
+  document.getElementById('pageTitle').textContent = 'Part Master';
+  await renderPartMaster();
+  if(window.__tbl_part) window.__tbl_part.search(q);
+});
+
+/* ================= INIT ================= */
+renderDashboard();
+</script>
+</body>
+</html>
