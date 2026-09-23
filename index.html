@@ -1137,7 +1137,8 @@ function drawKanban(data){
       if(wo.Status==='Cancelled'){ toast('WO ini sudah dibatalkan', true); return; }
       const curIdx = WO_FLOW.indexOf(wo.Status), newIdx = WO_FLOW.indexOf(newStatus);
       if(newIdx < curIdx){ toast('Tidak bisa mundur status WO', true); return; }
-      if(newIdx > curIdx+1){ toast('Tidak bisa lompat status, selesaikan tahap sebelumnya dulu', true); return; }
+      const isSkipMaterialPicking = (wo.Status==='Dispatching' && newStatus==='Completed');
+      if(newIdx > curIdx+1 && !isSkipMaterialPicking){ toast('Tidak bisa lompat status, selesaikan tahap sebelumnya dulu', true); return; }
       openAdvanceModal(woid, wo.Status, newStatus);
     });
   });
@@ -1290,7 +1291,9 @@ async function viewWorkOrder(woid){
   if(!res.success){ toast(res.message,true); return; }
   const {header, parts, labors, sublets} = res.data;
   const curIdx = WO_FLOW.indexOf(header.Status);
-  const nextStatus = header.Status==='Cancelled' ? null : WO_FLOW[curIdx+1];
+  let nextStatus = header.Status==='Cancelled' ? null : WO_FLOW[curIdx+1];
+  const noParts = (parts||[]).length===0;
+  if(nextStatus==='Material Picking' && noParts) nextStatus = 'Completed'; // WO tanpa part, lewati tahap Part Staff
   const editable = ['New','Dispatching','Material Picking','Completed'].indexOf(header.Status)!==-1;
   const actor = getActor();
   const stepperHtml = header.Status==='Cancelled'
@@ -1330,6 +1333,7 @@ async function viewWorkOrder(woid){
 
       <div class="kv" style="font-size:15px;margin-top:8px;"><span>Total Work Order</span><b>${fmtMoneyFull(header.TotalWO)}</b></div>
       ${!editable && header.Status!=='Cancelled' ? `<p class="sub" style="margin-top:8px;">ℹ WO sudah masuk status Invoice, tidak bisa ditambah item lagi.</p>`:''}
+      ${noParts && header.Status==='Dispatching' ? `<p class="sub" style="margin-top:8px;">ℹ WO ini tidak ada part, jadi tahap Material Picking (Part Staff) otomatis dilewati — langsung ke Completed.</p>`:''}
     </div>
     <div class="drawer-foot">
       <button class="btn secondary" onclick="closeDrawer()">Tutup</button>
