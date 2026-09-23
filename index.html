@@ -440,7 +440,7 @@ function dataTable(opts){
     sort(k){ if(state.sortKey===k) state.sortDir*=-1; else {state.sortKey=k; state.sortDir=1;} render(); },
     refresh(rows){ if(rows) opts.rows = rows; render(); }
   };
-  return `<div id="${wrapId}"></div><script>window.__tbl_${opts.id} && window.__tbl_${opts.id}.search('')</script>`;
+  return `<div id="${wrapId}"></div>`;
 }
 function initTable(id){ window['__tbl_'+id].search(''); }
 
@@ -448,30 +448,48 @@ function initTable(id){ window['__tbl_'+id].search(''); }
 function svgTooltipShow(x,y,html){ const t=document.getElementById('svgTooltip'); t.innerHTML=html; t.style.left=(x+14)+'px'; t.style.top=(y+14)+'px'; t.style.display='block'; }
 function svgTooltipHide(){ document.getElementById('svgTooltip').style.display='none'; }
 
-// Horizontal bar chart - identity/kategori, label langsung di ujung bar
+// Horizontal bar chart - identity/kategori, label langsung di ujung bar.
+// Semua koordinat/angka diisi lewat DOM API setelah SVG dipasang ke halaman (bukan lewat teks HTML),
+// supaya kebal dari gangguan tanda kutip di jaringan/browser tertentu.
 function hBarChart(items, opts={}){
-  // items: [{label, value, colorVar}]
-  const w = opts.width || 100; // percentage-based via viewBox
   const max = Math.max(1, ...items.map(i=>i.value));
   const barH = 20, gap = 14;
   const chartW = 560, leftPad = 130, rightPad = 60;
   const plotW = chartW - leftPad - rightPad;
   const h = items.length * (barH+gap);
-  let svg = `<svg viewBox="0 0 ${chartW} ${h+10}" width="100%" style="max-width:${chartW}px;overflow:visible;" preserveAspectRatio="xMinYMin meet">`;
-  items.forEach((it,i)=>{
-    const y = i*(barH+gap);
-    const bw = Math.max(2, (it.value/max)*plotW);
-    const color = `var(--${it.colorVar||'s1'})`;
-    svg += `<text x="${leftPad-10}" y="${y+barH/2+4}" text-anchor="end" font-size="11.5" fill="var(--ink-2)">${esc(it.label)}</text>`;
-    svg += `<rect x="${leftPad}" y="${y}" width="${plotW}" height="${barH}" rx="4" fill="var(--surface-3)" opacity=".35"/>`;
-    svg += `<rect class="hbar" data-i="${i}" x="${leftPad}" y="${y}" width="${bw}" height="${barH}" rx="4" fill="${color}" style="cursor:pointer;"/>`;
-    svg += `<text x="${leftPad+bw+8}" y="${y+barH/2+4}" font-size="11.5" font-weight="700" fill="var(--ink)">${it.value}</text>`;
+  let inner = '';
+  items.forEach(function(it){
+    inner += '<text class="hbar-label" text-anchor="end" font-size="11.5" fill="var(--ink-2)"></text>';
+    inner += '<rect class="hbar-track" rx="4" fill="var(--surface-3)" opacity=".35"></rect>';
+    inner += '<rect class="hbar" fill="var(--s1)" style="cursor:pointer;"></rect>';
+    inner += '<text class="hbar-value" font-size="11.5" font-weight="700" fill="var(--ink)"></text>';
   });
-  svg += `</svg>`;
-  return svg;
+  const svg = '<svg class="hbar-svg" preserveAspectRatio="xMinYMin meet" style="overflow:visible;" width="100%">' + inner + '</svg>';
+  return { svg: svg, items: items, layout: {chartW:chartW, h:h, leftPad:leftPad, barH:barH, gap:gap, plotW:plotW, max:max} };
+}
+function attachHBarChart(containerEl, chart){
+  const svgEl = containerEl.querySelector('.hbar-svg');
+  if(!svgEl) return;
+  const L = chart.layout;
+  svgEl.setAttribute('viewBox', '0 0 ' + L.chartW + ' ' + (L.h+10));
+  svgEl.style.maxWidth = L.chartW + 'px';
+  const labels = svgEl.querySelectorAll('.hbar-label');
+  const tracks = svgEl.querySelectorAll('.hbar-track');
+  const bars = svgEl.querySelectorAll('.hbar');
+  const values = svgEl.querySelectorAll('.hbar-value');
+  chart.items.forEach(function(it,i){
+    const y = i*(L.barH+L.gap);
+    const bw = Math.max(2, (it.value/L.max)*L.plotW);
+    labels[i].setAttribute('x', L.leftPad-10); labels[i].setAttribute('y', y+L.barH/2+4); labels[i].textContent = it.label;
+    tracks[i].setAttribute('x', L.leftPad); tracks[i].setAttribute('y', y); tracks[i].setAttribute('width', L.plotW); tracks[i].setAttribute('height', L.barH);
+    bars[i].setAttribute('x', L.leftPad); bars[i].setAttribute('y', y); bars[i].setAttribute('width', bw); bars[i].setAttribute('height', L.barH);
+    bars[i].style.fill = 'var(--' + (it.colorVar||'s1') + ')';
+    values[i].setAttribute('x', L.leftPad+bw+8); values[i].setAttribute('y', y+L.barH/2+4); values[i].textContent = it.value;
+  });
 }
 
-// Line/area chart - trend waktu (satu seri, hue sequential biru)
+// Line/area chart - trend waktu (satu seri, hue sequential biru). Sama seperti di atas: koordinat
+// diisi lewat DOM API setelah dipasang ke halaman.
 function lineChart(labels, values, opts={}){
   const chartW = 560, chartH = 200, padL = 50, padR = 16, padT = 16, padB = 30;
   const plotW = chartW-padL-padR, plotH = chartH-padT-padB;
@@ -483,25 +501,45 @@ function lineChart(labels, values, opts={}){
     y: padT + plotH - ((v-min)/range)*plotH,
     v, label: labels[i]
   }));
+  let gridLines = '';
+  for(let k=0;k<5;k++){ gridLines += '<line class="grid-line" data-k="'+k+'"></line>'; }
+  let dots = '', labelTexts = '';
+  pts.forEach(function(){ dots += '<circle class="linept" r="4.5" fill="var(--s1)" stroke="var(--surface)" stroke-width="2" style="cursor:pointer;"></circle>'; });
+  pts.forEach(function(){ labelTexts += '<text class="line-label" text-anchor="middle" font-size="10" fill="var(--ink-muted)"></text>'; });
+  const svg = '<svg class="line-svg" style="overflow:visible;" width="100%">' +
+    '<defs><linearGradient id="areaFill" x1="0" y1="0" x2="0" y2="1">' +
+      '<stop offset="0%" stop-color="var(--s1)" stop-opacity=".22"></stop>' +
+      '<stop offset="100%" stop-color="var(--s1)" stop-opacity="0"></stop>' +
+    '</linearGradient></defs>' +
+    gridLines +
+    '<path class="area-path" fill="url(#areaFill)"></path>' +
+    '<path class="line-path" fill="none" stroke="var(--s1)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"></path>' +
+    dots + labelTexts +
+    '<text class="line-endlabel" text-anchor="middle" font-size="11.5" font-weight="700" fill="var(--ink)"></text>' +
+  '</svg>';
+  return {svg: svg, pts: pts, fmt: opts.fmt, layout:{chartW:chartW, chartH:chartH, padL:padL, padR:padR, padT:padT, plotH:plotH}};
+}
+function attachLineChart(containerEl, chart){
+  const svgEl = containerEl.querySelector('.line-svg');
+  if(!svgEl) return;
+  const L = chart.layout, pts = chart.pts;
+  svgEl.setAttribute('viewBox', '0 0 ' + L.chartW + ' ' + L.chartH);
+  svgEl.style.maxWidth = L.chartW + 'px';
+  svgEl.querySelectorAll('.grid-line').forEach(function(el,k){
+    const f = k*0.25, y = L.padT + L.plotH*f;
+    el.setAttribute('x1', L.padL); el.setAttribute('y1', y); el.setAttribute('x2', L.chartW-L.padR); el.setAttribute('y2', y);
+    el.setAttribute('stroke', 'var(--border)'); el.setAttribute('stroke-width', 1);
+  });
   const path = pts.map((p,i)=>(i===0?'M':'L')+p.x.toFixed(1)+' '+p.y.toFixed(1)).join(' ');
-  const areaPath = path + ` L${pts[pts.length-1].x.toFixed(1)} ${padT+plotH} L${pts[0].x.toFixed(1)} ${padT+plotH} Z`;
-  const gridLines = [0,.25,.5,.75,1].map(f=>{
-    const y = padT + plotH*f;
-    return `<line x1="${padL}" y1="${y}" x2="${chartW-padR}" y2="${y}" stroke="var(--border)" stroke-width="1"/>`;
-  }).join('');
-  let svg = `<svg id="lineChartSvg" viewBox="0 0 ${chartW} ${chartH}" width="100%" style="max-width:${chartW}px;overflow:visible;">
-    <defs><linearGradient id="areaFill" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="var(--s1)" stop-opacity=".22"/>
-      <stop offset="100%" stop-color="var(--s1)" stop-opacity="0"/>
-    </linearGradient></defs>
-    ${gridLines}
-    <path d="${areaPath}" fill="url(#areaFill)"/>
-    <path d="${path}" fill="none" stroke="var(--s1)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-    ${pts.map((p,i)=>`<circle class="linept" data-i="${i}" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="4.5" fill="var(--s1)" stroke="var(--surface)" stroke-width="2" style="cursor:pointer;"/>`).join('')}
-    ${pts.map((p,i)=>`<text x="${p.x.toFixed(1)}" y="${chartH-8}" text-anchor="middle" font-size="10" fill="var(--ink-muted)">${esc(p.label)}</text>`).join('')}
-    <text x="${pts[pts.length-1].x.toFixed(1)}" y="${(pts[pts.length-1].y-12).toFixed(1)}" text-anchor="middle" font-size="11.5" font-weight="700" fill="var(--ink)">${opts.fmt?opts.fmt(pts[pts.length-1].v):pts[pts.length-1].v}</text>
-  </svg>`;
-  return {svg, pts, fmt:opts.fmt};
+  const areaPath = path + ' L' + pts[pts.length-1].x.toFixed(1) + ' ' + (L.padT+L.plotH) + ' L' + pts[0].x.toFixed(1) + ' ' + (L.padT+L.plotH) + ' Z';
+  svgEl.querySelector('.area-path').setAttribute('d', areaPath);
+  svgEl.querySelector('.line-path').setAttribute('d', path);
+  svgEl.querySelectorAll('.linept').forEach(function(el,i){ el.setAttribute('cx', pts[i].x.toFixed(1)); el.setAttribute('cy', pts[i].y.toFixed(1)); });
+  svgEl.querySelectorAll('.line-label').forEach(function(el,i){ el.setAttribute('x', pts[i].x.toFixed(1)); el.setAttribute('y', L.chartH-8); el.textContent = pts[i].label; });
+  const endEl = svgEl.querySelector('.line-endlabel');
+  const lastPt = pts[pts.length-1];
+  endEl.setAttribute('x', lastPt.x.toFixed(1)); endEl.setAttribute('y', (lastPt.y-12).toFixed(1));
+  endEl.textContent = chart.fmt ? chart.fmt(lastPt.v) : lastPt.v;
 }
 function attachLineTooltip(containerEl, pts, fmt){
   containerEl.querySelectorAll('.linept').forEach((c,i)=>{
@@ -524,7 +562,7 @@ function donutChart(items, opts={}){
   let acc = -90;
   const circ = 2*Math.PI*r;
   const parts = [];
-  parts.push('<svg class="donut-svg" width="'+size+'" height="'+size+'">');
+  parts.push('<svg class="donut-svg">');
   items.forEach((it,i)=>{
     parts.push('<circle class="donut-seg" data-i="'+i+'" fill="none" stroke="var(--'+it.colorVar+')" style="cursor:pointer;transition:.2s;"/>');
   });
@@ -536,6 +574,8 @@ function donutChart(items, opts={}){
 function attachDonutChart(containerEl, chart){
   const svgEl = containerEl.querySelector('.donut-svg');
   if(!svgEl) return;
+  svgEl.setAttribute('width', chart.size);
+  svgEl.setAttribute('height', chart.size);
   svgEl.setAttribute('viewBox', '0 0 ' + chart.size + ' ' + chart.size);
   let acc = -90;
   const segs = svgEl.querySelectorAll('.donut-seg');
@@ -649,11 +689,16 @@ async function renderDashboard(){
   `);
 
   const lc = lineChart(d.revenueTrend.labels, d.revenueTrend.values, {fmt:fmtMoney});
-  document.getElementById('lineChartWrap').innerHTML = lc.svg;
-  attachLineTooltip(document.getElementById('lineChartWrap'), lc.pts, fmtMoney);
+  const lineWrap = document.getElementById('lineChartWrap');
+  lineWrap.innerHTML = lc.svg;
+  attachLineChart(lineWrap, lc);
+  attachLineTooltip(lineWrap, lc.pts, fmtMoney);
 
-  document.getElementById('barChartWrap').innerHTML = hBarChart(woItems);
-  attachBarTooltip(document.getElementById('barChartWrap'), woItems);
+  const bc = hBarChart(woItems);
+  const barWrap = document.getElementById('barChartWrap');
+  barWrap.innerHTML = bc.svg;
+  attachHBarChart(barWrap, bc);
+  attachBarTooltip(barWrap, woItems);
 
   if(poEntries.length){
     const donut = donutChart(poItems);
@@ -1338,8 +1383,10 @@ async function loadKartuStok(){
   `;
   if(trendVals.length>1){
     const lc = lineChart(trendLabels, trendVals);
-    document.getElementById('ks_line').innerHTML = lc.svg;
-    attachLineTooltip(document.getElementById('ks_line'), lc.pts);
+    const ksLine = document.getElementById('ks_line');
+    ksLine.innerHTML = lc.svg;
+    attachLineChart(ksLine, lc);
+    attachLineTooltip(ksLine, lc.pts);
   }
 }
 
