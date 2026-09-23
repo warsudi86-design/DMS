@@ -516,25 +516,44 @@ function attachBarTooltip(containerEl, items){
   });
 }
 
-// Donut chart - proporsi (mis. status PO)
+// Donut chart - proporsi (mis. status PO). Koordinat & angka DIISI lewat DOM API setelah dipasang ke halaman
+// (bukan dituliskan sebagai teks di dalam string HTML), supaya kebal dari gangguan tanda kutip di jaringan/browser.
 function donutChart(items, opts={}){
   const size = opts.size||160, r=size/2-14, cx=size/2, cy=size/2, sw=20;
   const total = items.reduce((s,i)=>s+i.value,0)||1;
   let acc = -90;
   const circ = 2*Math.PI*r;
-  let svg = `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}">`;
+  const parts = [];
+  parts.push('<svg class="donut-svg" width="'+size+'" height="'+size+'">');
   items.forEach((it,i)=>{
-    const frac = it.value/total;
-    const dash = circ*frac;
-    svg += `<circle class="donut-seg" data-i="${i}" cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--${it.colorVar})"
-      stroke-width="${sw}" stroke-dasharray="${dash-2} ${circ-dash+2}" stroke-dashoffset="${-acc/360*circ}"
-      transform="rotate(-90 ${cx} ${cy})" style="cursor:pointer;transition:.2s;"/>`;
+    parts.push('<circle class="donut-seg" data-i="'+i+'" fill="none" stroke="var(--'+it.colorVar+')" style="cursor:pointer;transition:.2s;"/>');
+  });
+  parts.push('<text class="donut-total-num" text-anchor="middle" font-size="20" font-weight="800" fill="var(--ink)"></text>');
+  parts.push('<text class="donut-total-lbl" text-anchor="middle" font-size="10" fill="var(--ink-muted)">Total</text>');
+  parts.push('</svg>');
+  return { svg: parts.join(''), size, r, cx, cy, sw, circ, total, items };
+}
+function attachDonutChart(containerEl, chart){
+  const svgEl = containerEl.querySelector('.donut-svg');
+  if(!svgEl) return;
+  svgEl.setAttribute('viewBox', '0 0 ' + chart.size + ' ' + chart.size);
+  let acc = -90;
+  const segs = svgEl.querySelectorAll('.donut-seg');
+  chart.items.forEach((it,i)=>{
+    const el = segs[i];
+    const frac = it.value/chart.total;
+    const dash = chart.circ*frac;
+    el.setAttribute('cx', chart.cx); el.setAttribute('cy', chart.cy); el.setAttribute('r', chart.r);
+    el.setAttribute('stroke-width', chart.sw);
+    el.setAttribute('stroke-dasharray', (dash-2)+' '+(chart.circ-dash+2));
+    el.setAttribute('stroke-dashoffset', (-acc/360*chart.circ));
+    el.setAttribute('transform', 'rotate(-90 '+chart.cx+' '+chart.cy+')');
     acc += frac*360;
   });
-  svg += '<text x="' + cx + '" y="' + (cy-2) + '" text-anchor="middle" font-size="20" font-weight="800" fill="var(--ink)">' + total + '</text>';
-  svg += '<text x="' + cx + '" y="' + (cy+16) + '" text-anchor="middle" font-size="10" fill="var(--ink-muted)">Total</text>';
-  svg += `</svg>`;
-  return svg;
+  const numEl = svgEl.querySelector('.donut-total-num');
+  numEl.setAttribute('x', chart.cx); numEl.setAttribute('y', chart.cy-2); numEl.textContent = chart.total;
+  const lblEl = svgEl.querySelector('.donut-total-lbl');
+  lblEl.setAttribute('x', chart.cx); lblEl.setAttribute('y', chart.cy+16);
 }
 function legendFor(items){
   return `<div class="chart-legend">${items.map(it=>`<div class="item"><span class="sw" style="background:var(--${it.colorVar})"></span>${esc(it.label)} (${it.value})</div>`).join('')}</div>`;
@@ -604,9 +623,8 @@ async function renderDashboard(){
       <div class="panel">
         <h3>Status Purchase Order</h3>
         <p class="sub">Proporsi PO berdasarkan status</p>
-        <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;">
-          ${poEntries.length ? donutChart(poItems) : ''}
-          ${poEntries.length ? legendFor(poItems) : emptyState('Belum ada data PO')}
+        <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;" id="donutWrap">
+          ${poEntries.length ? '' : emptyState('Belum ada data PO')}
         </div>
       </div>
       <div class="panel">
@@ -636,6 +654,13 @@ async function renderDashboard(){
 
   document.getElementById('barChartWrap').innerHTML = hBarChart(woItems);
   attachBarTooltip(document.getElementById('barChartWrap'), woItems);
+
+  if(poEntries.length){
+    const donut = donutChart(poItems);
+    const donutWrap = document.getElementById('donutWrap');
+    donutWrap.innerHTML = donut.svg + legendFor(poItems);
+    attachDonutChart(donutWrap, donut);
+  }
 }
 
 /* ================= MASTER: CUSTOMER ================= */
@@ -752,27 +777,38 @@ async function renderPartMaster(){
 }
 function formPart(p){
   p = p || {};
-  const vHbeli = String(p.HargaBeli||0), vHjual = String(p.HargaJual||0), vStokmin = String(p.StokMinimum||0), vStokakhir = String(p.StokAkhir||0);
+  const isEdit = !!p.PartNumber;
   openDrawer(
-    '<div class="drawer-head"><h3>' + (p.PartNumber? 'Edit':'Tambah') + ' Part</h3><button class="drawer-close" onclick="closeDrawer()">&times;</button></div>' +
-    '<div class="drawer-body">' +
-      '<label>Part Number</label><input id="f_pn" value="' + esc(p.PartNumber||'') + '" ' + (p.PartNumber?'disabled':'') + '>' +
-      '<label>Nama Part</label><input id="f_pname" value="' + esc(p.PartName||'') + '">' +
-      '<div class="grid3">' +
-        '<div><label>Kategori</label><input id="f_kat" value="' + esc(p.Kategori||'') + '"></div>' +
-        '<div><label>Satuan</label><input id="f_satuan" value="' + esc(p.Satuan||'PCS') + '"></div>' +
-        '<div><label>Lokasi Rak</label><input id="f_lokasi" value="' + esc(p.Lokasi||'') + '"></div>' +
-        '<div><label>Harga Beli</label><input id="f_hbeli" type="number" value="' + vHbeli + '"></div>' +
-        '<div><label>Harga Jual</label><input id="f_hjual" type="number" value="' + vHjual + '"></div>' +
-        '<div><label>Stok Minimum</label><input id="f_stokmin" type="number" value="' + vStokmin + '"></div>' +
-      '</div>' +
-      '<label>' + (p.PartNumber?'Stok Saat Ini (readonly, ubah lewat Inbound/Outbound)':'Stok Awal') + '</label>' +
-      '<input id="f_stokawal" type="number" value="' + vStokakhir + '" ' + (p.PartNumber?'disabled':'') + '>' +
-    '</div>' +
-    '<div class="drawer-foot"><button class="btn secondary" onclick="closeDrawer()">Batal</button>' +
-    '<button class="btn" onclick="savePart()">Simpan</button></div>'
+    ['<div class="drawer-head"><h3>', isEdit? 'Edit':'Tambah', ' Part</h3><button class="drawer-close" onclick="closeDrawer()">&times;</button></div>',
+    '<div class="drawer-body">',
+      '<label>Part Number</label><input id="f_pn">',
+      '<label>Nama Part</label><input id="f_pname">',
+      '<div class="grid3">',
+        '<div><label>Kategori</label><input id="f_kat"></div>',
+        '<div><label>Satuan</label><input id="f_satuan"></div>',
+        '<div><label>Lokasi Rak</label><input id="f_lokasi"></div>',
+        '<div><label>Harga Beli</label><input id="f_hbeli" type="number"></div>',
+        '<div><label>Harga Jual</label><input id="f_hjual" type="number"></div>',
+        '<div><label>Stok Minimum</label><input id="f_stokmin" type="number"></div>',
+      '</div>',
+      '<label>', (isEdit?'Stok Saat Ini (readonly, ubah lewat Inbound/Outbound)':'Stok Awal'), '</label>',
+      '<input id="f_stokawal" type="number">',
+    '</div>',
+    '<div class="drawer-foot"><button class="btn secondary" onclick="closeDrawer()">Batal</button>',
+    '<button class="btn" onclick="savePart()">Simpan</button></div>'].join('')
   );
+  // isi nilai lewat DOM property, bukan lewat teks HTML, supaya tidak terpengaruh apa pun yang mengutak-atik tanda kutip di source
+  setFieldValue('f_pn', p.PartNumber||''); if(isEdit) document.getElementById('f_pn').disabled = true;
+  setFieldValue('f_pname', p.PartName||'');
+  setFieldValue('f_kat', p.Kategori||'');
+  setFieldValue('f_satuan', p.Satuan||'PCS');
+  setFieldValue('f_lokasi', p.Lokasi||'');
+  setFieldValue('f_hbeli', Number(p.HargaBeli||0));
+  setFieldValue('f_hjual', Number(p.HargaJual||0));
+  setFieldValue('f_stokmin', Number(p.StokMinimum||0));
+  setFieldValue('f_stokawal', Number(p.StokAkhir||0)); if(isEdit) document.getElementById('f_stokawal').disabled = true;
 }
+function setFieldValue(id, v){ const el = document.getElementById(id); if(el) el.value = v; }
 async function savePart(){
   const payload = { PartNumber:val('f_pn'), PartName:val('f_pname'), Kategori:val('f_kat'), Satuan:val('f_satuan'),
     HargaBeli:val('f_hbeli'), HargaJual:val('f_hjual'), StokMinimum:val('f_stokmin'), StokAwal:val('f_stokawal'), Lokasi:val('f_lokasi') };
@@ -803,21 +839,26 @@ async function renderLaborMaster(){
 }
 function formLabor(l){
   l = l || {};
-  const vHarga = String(l.Harga||0), vEst = String(l.EstimasiMenit||0);
+  const isEdit = !!l.LaborCode;
   openDrawer(
-    '<div class="drawer-head"><h3>' + (l.LaborCode? 'Edit':'Tambah') + ' Labor</h3><button class="drawer-close" onclick="closeDrawer()">&times;</button></div>' +
-    '<div class="drawer-body">' +
-      '<label>Kode Labor</label><input id="f_lc" value="' + esc(l.LaborCode||'') + '" ' + (l.LaborCode?'disabled':'') + '>' +
-      '<label>Nama Jasa</label><input id="f_lname" value="' + esc(l.LaborName||'') + '">' +
-      '<div class="grid3">' +
-        '<div><label>Kategori</label><input id="f_lkat" value="' + esc(l.Kategori||'') + '"></div>' +
-        '<div><label>Harga</label><input id="f_lharga" type="number" value="' + vHarga + '"></div>' +
-        '<div><label>Estimasi Menit</label><input id="f_lest" type="number" value="' + vEst + '"></div>' +
-      '</div>' +
-    '</div>' +
-    '<div class="drawer-foot"><button class="btn secondary" onclick="closeDrawer()">Batal</button>' +
-    '<button class="btn" onclick="saveLabor()">Simpan</button></div>'
+    ['<div class="drawer-head"><h3>', isEdit? 'Edit':'Tambah', ' Labor</h3><button class="drawer-close" onclick="closeDrawer()">&times;</button></div>',
+    '<div class="drawer-body">',
+      '<label>Kode Labor</label><input id="f_lc">',
+      '<label>Nama Jasa</label><input id="f_lname">',
+      '<div class="grid3">',
+        '<div><label>Kategori</label><input id="f_lkat"></div>',
+        '<div><label>Harga</label><input id="f_lharga" type="number"></div>',
+        '<div><label>Estimasi Menit</label><input id="f_lest" type="number"></div>',
+      '</div>',
+    '</div>',
+    '<div class="drawer-foot"><button class="btn secondary" onclick="closeDrawer()">Batal</button>',
+    '<button class="btn" onclick="saveLabor()">Simpan</button></div>'].join('')
   );
+  setFieldValue('f_lc', l.LaborCode||''); if(isEdit) document.getElementById('f_lc').disabled = true;
+  setFieldValue('f_lname', l.LaborName||'');
+  setFieldValue('f_lkat', l.Kategori||'');
+  setFieldValue('f_lharga', Number(l.Harga||0));
+  setFieldValue('f_lest', Number(l.EstimasiMenit||0));
 }
 async function saveLabor(){
   const payload = { LaborCode:val('f_lc'), LaborName:val('f_lname'), Kategori:val('f_lkat'), Harga:val('f_lharga'), EstimasiMenit:val('f_lest') };
@@ -1180,14 +1221,19 @@ async function loadPODetailForGR(){
   const res = await apiGet('getPO', {id:ponumber});
   const details = res.data.details;
   window.__grDetails = details;
-  document.getElementById('gr_detail_list').innerHTML = '<h3 style="font-size:13.5px;">Detail Part</h3><table><tr><th>Part</th><th>Order</th><th>Diterima</th><th>Qty Sekarang</th><th>Kondisi</th></tr>' +
-    details.map(function(d,i){
-      const sisa = String(Math.max(0, Number(d.QtyOrder) - Number(d.QtyDiterima||0)));
-      return '<tr><td>' + esc(d.PartName) + '</td><td>' + d.QtyOrder + '</td><td>' + (d.QtyDiterima||0) + '</td>' +
-      '<td><input type="number" id="gr_qty_' + i + '" value="' + sisa + '" style="width:64px;margin:0;"></td>' +
-      '<td><select id="gr_kondisi_' + i + '" style="margin:0;"><option>Baik</option><option>Rusak</option></select></td></tr>';
-    }).join('') +
-    '</table>';
+  const rowsHtml = ['<h3 style="font-size:13.5px;">Detail Part</h3><table><tr><th>Part</th><th>Order</th><th>Diterima</th><th>Qty Sekarang</th><th>Kondisi</th></tr>'];
+  details.forEach(function(d,i){
+    rowsHtml.push('<tr><td>', esc(d.PartName), '</td><td>', d.QtyOrder, '</td><td>', (d.QtyDiterima||0), '</td>',
+      '<td><input type="number" id="gr_qty_' + i + '" style="width:64px;margin:0;"></td>',
+      '<td><select id="gr_kondisi_' + i + '" style="margin:0;"><option>Baik</option><option>Rusak</option></select></td></tr>');
+  });
+  rowsHtml.push('</table>');
+  document.getElementById('gr_detail_list').innerHTML = rowsHtml.join('');
+  // isi qty sisa lewat DOM property (bukan lewat teks HTML)
+  details.forEach(function(d,i){
+    const sisa = Math.max(0, Number(d.QtyOrder) - Number(d.QtyDiterima||0));
+    setFieldValue('gr_qty_'+i, sisa);
+  });
 }
 async function submitPenerimaan(){
   const details = window.__grDetails.map((d,i)=>({
