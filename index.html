@@ -7,22 +7,27 @@
 <style>
 /* ============ DESIGN TOKENS (dark theme, palet kategorikal & status tervalidasi) ============ */
 :root{
-  --page:#0d0d0d; --surface:#17181c; --surface-2:#1f2127; --surface-3:#282b33;
-  --border:rgba(255,255,255,.08); --border-strong:rgba(255,255,255,.14);
-  --ink:#ffffff; --ink-2:#c3c2b7; --ink-muted:#898781;
-  --brand:#3987e5; --brand-2:#9085e9;
+  /* ---- tema terang/modern: layar utama abu-abu, kartu putih ---- */
+  --page:#eef1f6; --surface:#ffffff; --surface-2:#f2f4f8; --surface-3:#e6e9f0;
+  --border:rgba(20,30,55,.09); --border-strong:rgba(20,30,55,.16);
+  --ink:#171d2b; --ink-2:#454f66; --ink-muted:#848da3;
+  --brand:#2f6fd6; --brand-2:#7c6fe0;
   /* kategorikal (urutan tetap, jangan diacak) */
-  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#0ca30c; --s7:#9085e9; --s8:#e66767;
+  --s1:#2f6fd6; --s2:#c2531d; --s3:#128a63; --s4:#a8730a; --s5:#c2456f; --s6:#0a8f0a; --s7:#7c6fe0; --s8:#d65454;
   /* status (dicadangkan, tidak dipakai utk kategori lain) */
-  --good:#0ca30c; --warn:#fab219; --serious:#ec835a; --critical:#d03b3b;
+  --good:#0a8f0a; --warn:#c98a00; --serious:#d3673f; --critical:#c23a3a;
   --radius:14px; --radius-sm:9px;
-  --shadow:0 10px 30px rgba(0,0,0,.35);
+  --shadow:0 10px 30px rgba(20,30,55,.10);
+  /* ---- sidebar: biru navy, font putih (terpisah dari tema layar utama di atas) ---- */
+  --sb-bg:linear-gradient(180deg,#0d2a52,#0a1f3d); --sb-border:rgba(255,255,255,.09);
+  --sb-ink:#eaf1fc; --sb-ink-muted:#93a9cc; --sb-hover:rgba(255,255,255,.09);
+  --sb-active-bg:linear-gradient(135deg,rgba(79,150,240,.38),rgba(140,127,235,.30));
 }
 *{box-sizing:border-box;}
 html,body{height:100%;}
 body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:
-  radial-gradient(1200px 600px at 90% -10%, rgba(57,135,229,.10), transparent),
-  radial-gradient(900px 500px at -10% 110%, rgba(144,133,233,.08), transparent),
+  radial-gradient(1200px 600px at 90% -10%, rgba(47,111,214,.07), transparent),
+  radial-gradient(900px 500px at -10% 110%, rgba(124,111,224,.06), transparent),
   var(--page);color:var(--ink);min-height:100vh;}
 ::-webkit-scrollbar{width:9px;height:9px;}
 ::-webkit-scrollbar-thumb{background:var(--surface-3);border-radius:10px;}
@@ -31,35 +36,35 @@ body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;backgrou
 .app{display:flex;min-height:100vh;}
 
 /* ---------- SIDEBAR ---------- */
-.sidebar{width:242px;flex-shrink:0;background:rgba(23,24,28,.92);backdrop-filter:blur(10px);
-  border-right:1px solid var(--border);padding:18px 12px;position:sticky;top:0;height:100vh;
+.sidebar{width:242px;flex-shrink:0;background:var(--sb-bg);backdrop-filter:blur(10px);
+  border-right:1px solid var(--sb-border);padding:18px 12px;position:sticky;top:0;height:100vh;
   overflow-y:auto;transition:width .2s ease;}
 .sidebar.collapsed{width:72px;}
 .sidebar.collapsed .label,.sidebar.collapsed .nav-title,.sidebar.collapsed .brand-text{display:none;}
 .brand{display:flex;align-items:center;gap:10px;margin-bottom:20px;padding:4px 6px;}
 .brand .logo{width:38px;height:38px;border-radius:11px;flex-shrink:0;
   background:linear-gradient(135deg,var(--brand),var(--brand-2));display:flex;align-items:center;
-  justify-content:center;font-weight:800;font-size:13px;box-shadow:0 4px 14px rgba(57,135,229,.35);overflow:hidden;}
+  justify-content:center;font-weight:800;font-size:13px;box-shadow:0 4px 14px rgba(0,0,0,.35);overflow:hidden;color:#fff;}
 .brand .logo.has-img{background:#fff;box-shadow:0 4px 14px rgba(0,0,0,.2);}
 .brand .logo img{width:100%;height:100%;object-fit:contain;}
-.brand-text h1{font-size:14px;margin:0;line-height:1.2;font-weight:700;}
-.brand-text span{display:block;font-size:10.5px;color:var(--ink-muted);margin-top:1px;}
-.collapse-btn{margin-left:auto;background:none;border:none;color:var(--ink-muted);cursor:pointer;padding:4px;
+.brand-text h1{font-size:14px;margin:0;line-height:1.2;font-weight:700;color:var(--sb-ink);}
+.brand-text span{display:block;font-size:10.5px;color:var(--sb-ink-muted);margin-top:1px;}
+.collapse-btn{margin-left:auto;background:none;border:none;color:var(--sb-ink-muted);cursor:pointer;padding:4px;
   border-radius:6px;display:flex;}
-.collapse-btn:hover{background:var(--surface-2);color:var(--ink);}
-.nav-title{font-size:10px;text-transform:uppercase;letter-spacing:.09em;color:var(--ink-muted);
+.collapse-btn:hover{background:var(--sb-hover);color:var(--sb-ink);}
+.nav-title{font-size:10px;text-transform:uppercase;letter-spacing:.09em;color:var(--sb-ink-muted);
   margin:16px 10px 6px;font-weight:700;display:flex;align-items:center;justify-content:space-between;
   cursor:pointer;padding:2px 2px;border-radius:6px;user-select:none;}
-.nav-title:hover{color:var(--ink);}
+.nav-title:hover{color:var(--sb-ink);}
 .nav-arrow{flex-shrink:0;transition:transform .15s;}
 .nav-title.collapsed .nav-arrow{transform:rotate(-90deg);}
 .nav-items{overflow:hidden;}
 .nav-items.collapsed{display:none;}
 .nav-item{display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:10px;cursor:pointer;
-  color:var(--ink-2);font-size:13.5px;transition:.15s;position:relative;margin-bottom:2px;white-space:nowrap;}
+  color:var(--sb-ink-muted);font-size:13.5px;transition:.15s;position:relative;margin-bottom:2px;white-space:nowrap;}
 .nav-item svg{flex-shrink:0;width:18px;height:18px;}
-.nav-item:hover{background:var(--surface-2);color:var(--ink);}
-.nav-item.active{background:linear-gradient(135deg,rgba(57,135,229,.22),rgba(144,133,233,.16));color:#fff;font-weight:600;}
+.nav-item:hover{background:var(--sb-hover);color:var(--sb-ink);}
+.nav-item.active{background:var(--sb-active-bg);color:#fff;font-weight:600;}
 .nav-item.active::before{content:'';position:absolute;left:-12px;top:8px;bottom:8px;width:3px;border-radius:3px;
   background:linear-gradient(180deg,var(--brand),var(--brand-2));}
 .nav-badge{margin-left:auto;background:var(--critical);color:#fff;font-size:10px;font-weight:800;
@@ -68,7 +73,7 @@ body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;backgrou
 /* ---------- MAIN ---------- */
 .main{flex:1;min-width:0;display:flex;flex-direction:column;}
 .topbar{display:flex;align-items:center;gap:16px;padding:14px 26px;border-bottom:1px solid var(--border);
-  background:rgba(13,13,13,.6);backdrop-filter:blur(8px);position:sticky;top:0;z-index:20;}
+  background:rgba(255,255,255,.72);backdrop-filter:blur(8px);position:sticky;top:0;z-index:20;}
 .topbar .crumb{font-size:12px;color:var(--ink-muted);}
 .topbar h2{margin:0;font-size:18px;font-weight:700;}
 .searchbox{margin-left:auto;display:flex;align-items:center;gap:8px;background:var(--surface-2);
@@ -80,7 +85,7 @@ body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;backgrou
 .bell .dot{position:absolute;top:6px;right:7px;width:7px;height:7px;border-radius:50%;background:var(--critical);
   box-shadow:0 0 0 2px var(--surface);}
 .avatar{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--s7),var(--s5));
-  display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;}
+  display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;color:#fff;}
 .content{padding:22px 26px 40px;overflow-y:auto;}
 
 /* ---------- COMMON ---------- */
@@ -123,21 +128,21 @@ th{color:var(--ink-muted);font-weight:700;font-size:10.5px;text-transform:upperc
 th:hover{color:var(--ink);}
 th .sort-arrow{font-size:9px;margin-left:3px;opacity:.6;}
 tbody tr{transition:.1s;}
-tbody tr:hover td{background:rgba(255,255,255,.025);}
+tbody tr:hover td{background:rgba(20,30,55,.035);}
 td.num{font-variant-numeric:tabular-nums;}
 
 .badge{padding:4px 10px;border-radius:999px;font-size:11px;font-weight:700;display:inline-flex;align-items:center;gap:5px;white-space:nowrap;}
 .badge .dot{width:6px;height:6px;border-radius:50%;}
-.badge.s1{background:rgba(57,135,229,.16);color:#7db1ee;} .badge.s1 .dot{background:var(--s1);}
-.badge.s2{background:rgba(217,89,38,.16);color:#f0946a;} .badge.s2 .dot{background:var(--s2);}
-.badge.s3{background:rgba(25,158,112,.16);color:#5fd2a8;} .badge.s3 .dot{background:var(--s3);}
-.badge.s4{background:rgba(201,133,0,.18);color:#f0b53d;} .badge.s4 .dot{background:var(--s4);}
-.badge.s5{background:rgba(213,81,129,.16);color:#ef94b7;} .badge.s5 .dot{background:var(--s5);}
-.badge.s6{background:rgba(12,163,12,.16);color:#5fd25f;} .badge.s6 .dot{background:var(--s6);}
-.badge.s7{background:rgba(144,133,233,.18);color:#bdb6f5;} .badge.s7 .dot{background:var(--s7);}
-.badge.good{background:rgba(12,163,12,.16);color:#5fd25f;} .badge.good .dot{background:var(--good);}
-.badge.warn{background:rgba(250,178,25,.18);color:#fcd374;} .badge.warn .dot{background:var(--warn);}
-.badge.critical{background:rgba(208,59,59,.18);color:#f28080;} .badge.critical .dot{background:var(--critical);}
+.badge.s1{background:rgba(47,111,214,.13);color:#1d5bb0;} .badge.s1 .dot{background:var(--s1);}
+.badge.s2{background:rgba(194,83,29,.13);color:#a3441a;} .badge.s2 .dot{background:var(--s2);}
+.badge.s3{background:rgba(18,138,99,.13);color:#0f7a56;} .badge.s3 .dot{background:var(--s3);}
+.badge.s4{background:rgba(168,115,10,.16);color:#8a5f00;} .badge.s4 .dot{background:var(--s4);}
+.badge.s5{background:rgba(194,69,111,.13);color:#a13a63;} .badge.s5 .dot{background:var(--s5);}
+.badge.s6{background:rgba(10,143,10,.13);color:#0a7a0a;} .badge.s6 .dot{background:var(--s6);}
+.badge.s7{background:rgba(124,111,224,.16);color:#5b4fc7;} .badge.s7 .dot{background:var(--s7);}
+.badge.good{background:rgba(10,143,10,.13);color:#0a7a0a;} .badge.good .dot{background:var(--good);}
+.badge.warn{background:rgba(201,138,0,.16);color:#8a5f00;} .badge.warn .dot{background:var(--warn);}
+.badge.critical{background:rgba(194,58,58,.14);color:#a13030;} .badge.critical .dot{background:var(--critical);}
 .badge.muted{background:var(--surface-3);color:var(--ink-muted);} .badge.muted .dot{background:var(--ink-muted);}
 
 .tabs{display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap;border-bottom:1px solid var(--border);padding-bottom:2px;}
@@ -165,7 +170,7 @@ textarea{resize:vertical;min-height:60px;}
 .wo-grid .wo-col-right{max-width:360px;border-left:1px solid var(--border);background:var(--surface-2);}
 .wo-items-section{position:relative;}
 .wo-items-section.locked{opacity:.4;pointer-events:none;filter:grayscale(.3);}
-.wo-lock-hint{background:rgba(250,178,25,.12);border:1px solid rgba(250,178,25,.35);color:#fcd374;
+.wo-lock-hint{background:rgba(201,138,0,.12);border:1px solid rgba(201,138,0,.35);color:#8a5f00;
   padding:10px 14px;border-radius:10px;font-size:12.5px;margin-bottom:14px;}
 .item-disc-input{width:60px;}
 .disc-ratio-bar{height:6px;border-radius:4px;background:var(--surface-3);overflow:hidden;margin:8px 0;}
@@ -246,7 +251,7 @@ textarea{resize:vertical;min-height:60px;}
 .chart-legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;font-size:11.5px;color:var(--ink-2);}
 .chart-legend .item{display:flex;align-items:center;gap:6px;}
 .chart-legend .sw{width:9px;height:9px;border-radius:2px;}
-.tooltip-svg{position:fixed;background:#0b0b0b;border:1px solid var(--border-strong);border-radius:8px;padding:7px 10px;
+.tooltip-svg{position:fixed;background:#1a2130;color:#fff;border:1px solid var(--border-strong);border-radius:8px;padding:7px 10px;
   font-size:11.5px;pointer-events:none;z-index:200;box-shadow:var(--shadow);display:none;white-space:nowrap;}
 
 .view-toggle{display:flex;background:var(--surface-2);border:1px solid var(--border);border-radius:9px;padding:3px;gap:2px;}
@@ -286,9 +291,9 @@ textarea{resize:vertical;min-height:60px;}
 
 /* ---------- login screen (halaman depan sesuai role) ---------- */
 .login-screen{position:fixed;inset:0;z-index:65;display:flex;align-items:center;justify-content:center;
-  background:var(--bg);}
+  background:var(--page);}
 .login-card{width:380px;max-width:92vw;background:var(--surface);border:1px solid var(--border-strong);
-  border-radius:18px;padding:32px 28px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.4);}
+  border-radius:18px;padding:32px 28px;text-align:center;box-shadow:0 20px 60px rgba(20,30,55,.15);}
 .login-card .login-logo{width:56px;height:56px;border-radius:14px;background:var(--brand);color:#fff;
   display:flex;align-items:center;justify-content:center;font-weight:800;margin:0 auto 14px;overflow:hidden;}
 .login-card .login-logo img{width:100%;height:100%;object-fit:contain;}
@@ -301,9 +306,9 @@ textarea{resize:vertical;min-height:60px;}
 .priv-chk{display:inline-flex;align-items:center;gap:6px;background:var(--surface-2);border:1px solid var(--border);
   padding:6px 10px;border-radius:20px;font-size:12.5px;margin:0 6px 6px 0;}
 .priv-chk input[type=checkbox]{width:auto;margin:0;}
-.warn-box{background:rgba(250,178,25,.12);border:1px solid rgba(250,178,25,.35);color:#fcd374;
+.warn-box{background:rgba(201,138,0,.12);border:1px solid rgba(201,138,0,.35);color:#8a5f00;
   padding:10px 12px;border-radius:10px;font-size:12.5px;margin-bottom:12px;}
-.danger-box{background:rgba(208,59,59,.12);border:1px solid rgba(208,59,59,.35);color:#f28080;
+.danger-box{background:rgba(194,58,58,.12);border:1px solid rgba(194,58,58,.35);color:#a13030;
   padding:10px 12px;border-radius:10px;font-size:12.5px;margin-bottom:12px;}
 .pick-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px dashed var(--border);font-size:13px;}
 .pick-row input[type=checkbox]{width:auto;margin:0;}
@@ -342,14 +347,14 @@ textarea{resize:vertical;min-height:60px;}
   <div class="login-card">
     <div class="login-logo" id="loginLogo">DMS</div>
     <h1>BW GROUP</h1>
-    <p class="sub">Dealer Management System</p>
+    <p class="sub">BW Auto Craft — Dealer Management System</p>
     <label>Pilih Nama Anda</label>
     <select id="login_user_select"></select>
     <label style="margin-top:10px;">Password</label>
     <input type="password" id="login_password" placeholder="Password" onkeydown="if(event.key==='Enter')submitLogin()">
     <p class="sub" id="loginEmpty" style="display:none;margin-top:6px;">Belum ada data karyawan terdaftar. Hubungi akun <b>Super Admin</b> untuk didaftarkan lewat menu Karyawan / Role.</p>
-    <p class="sub" id="loginError" style="display:none;margin-top:6px;color:#f28080;"></p>
-    <button class="btn" id="loginSubmitBtn" style="width:100%;margin-top:14px;" onclick="submitLogin()">Masuk</button>
+    <p class="sub" id="loginError" style="display:none;margin-top:6px;color:#a13030;"></p>
+    <button class="btn" id="loginSubmitBtn" style="width:100%;margin-top:14px;justify-content:center;" onclick="submitLogin()">Masuk</button>
   </div>
 </div>
 <div class="app" id="appRoot" style="display:none;">
@@ -442,10 +447,12 @@ const NAV = [
     {id:'wo-invoice', label:'Invoice', icon:'wo'},
     {id:'wo-delivery', label:'Vehicle Delivery', icon:'wo'},
   ]},
-  {group:'Inventory Management', items:[
+  {group:'Purchasing Order', items:[
     {id:'po-created', label:'Pengajuan PO', icon:'po'},
     {id:'po-approval', label:'Approval PO', icon:'approve'},
     {id:'po-submit', label:'PO Submit Order', icon:'po'},
+  ]},
+  {group:'Inventory Management', items:[
     {id:'penerimaan', label:'Penerimaan Part', icon:'receive'},
     {id:'signin', label:'Sign In (Isi Rak)', icon:'inbound'},
     {id:'inbound', label:'Inbound Part', icon:'inbound'},
@@ -1798,7 +1805,7 @@ function addWOSublet(){
 }
 function removeWOSublet(i){ woCart.sublets.splice(i,1); renderWOLists(); }
 function woItemChipLabel(name, qty, gross, discPersen){
-  const discBadge = discPersen>0 ? ` <span style="color:#fcd374;">(-${(discPersen*100).toFixed(discPersen*100%1===0?0:1)}%)</span>` : '';
+  const discBadge = discPersen>0 ? ` <span style="color:#8a5f00;">(-${(discPersen*100).toFixed(discPersen*100%1===0?0:1)}%)</span>` : '';
   return `${esc(name)} ×${qty} — ${fmtMoneyFull(gross*(1-discPersen))}${discBadge}`;
 }
 function renderWOLists(){
@@ -2155,7 +2162,7 @@ function trendBadgeHtml(trend){
   if(!trend || trend.pct===null || trend.pct===undefined || !isFinite(trend.pct)) return '';
   const up = trend.delta>=0;
   const pct = Math.abs(trend.pct).toFixed(1);
-  const color = up ? '#5fd07a' : '#f28080';
+  const color = up ? '#1f8a3d' : '#a13030';
   const arrow = up ? '▲' : '▼';
   return ` <span style="color:${color};font-size:11.5px;font-weight:700;">${arrow} ${pct}%</span>`;
 }
