@@ -243,6 +243,32 @@ textarea{resize:vertical;min-height:60px;}
   .sidebar{position:fixed;left:-260px;z-index:80;transition:left .2s;} .sidebar.mobile-open{left:0;}
   .main{width:100%;}
 }
+
+/* ---------- COMBO SEARCH (dropdown pencarian: customer/vin, labor, part) ---------- */
+.combo{position:relative;}
+.combo-list{position:absolute;left:0;right:0;top:calc(100% - 8px);background:var(--surface-2);
+  border:1px solid var(--border-strong);border-radius:10px;max-height:240px;overflow-y:auto;
+  box-shadow:var(--shadow);z-index:40;display:none;}
+.combo-item{padding:9px 12px;cursor:pointer;border-bottom:1px solid var(--border);}
+.combo-item:last-child{border-bottom:none;}
+.combo-item:hover{background:var(--surface-3);}
+.combo-item .ci-label{font-size:13px;font-weight:600;}
+.combo-item .ci-sub{font-size:11px;color:var(--ink-muted);margin-top:2px;}
+.combo-empty{padding:12px;font-size:12.5px;color:var(--ink-muted);text-align:center;}
+
+/* ---------- role switcher & permission UI ---------- */
+.role-pill{display:flex;align-items:center;gap:8px;background:var(--surface-2);border:1px solid var(--border);
+  border-radius:10px;padding:6px 10px;font-size:12px;cursor:pointer;white-space:nowrap;}
+.role-pill b{color:var(--ink);}
+.role-pill:hover{border-color:var(--border-strong);}
+.warn-box{background:rgba(250,178,25,.12);border:1px solid rgba(250,178,25,.35);color:#fcd374;
+  padding:10px 12px;border-radius:10px;font-size:12.5px;margin-bottom:12px;}
+.danger-box{background:rgba(208,59,59,.12);border:1px solid rgba(208,59,59,.35);color:#f28080;
+  padding:10px 12px;border-radius:10px;font-size:12.5px;margin-bottom:12px;}
+.pick-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px dashed var(--border);font-size:13px;}
+.pick-row input[type=checkbox]{width:auto;margin:0;}
+.pick-row .prname{flex:1;}
+.pick-row .prqty{color:var(--ink-muted);font-size:12px;}
 </style>
 </head>
 <body>
@@ -266,6 +292,7 @@ textarea{resize:vertical;min-height:60px;}
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
         <input id="globalSearch" placeholder="Cari part, WO, PO...">
       </div>
+      <div class="role-pill" id="rolePill" onclick="openRoleSwitcher()" title="Ganti pengguna aktif">👤 <span id="rolePillText">Pilih pengguna</span></div>
       <div class="bell" onclick="views.dashboard()" title="Peringatan stok"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg><span class="dot" id="bellDot" style="display:none"></span></div>
       <div class="avatar">AF</div>
     </div>
@@ -280,7 +307,7 @@ textarea{resize:vertical;min-height:60px;}
 
 <script>
 /* ================= KONFIGURASI ================= */
-const API_URL = 'https://script.google.com/macros/s/AKfycbyh6YpbGab0HqPqZVaG9xNet320OLZgDbWUXxO8DfKkYfKN4y23dr3aZZPpOwyMDVCIVQ/exec'; // ganti dengan URL /exec hasil deploy
+const API_URL = 'https://script.google.com/macros/s/AKfycbyh6YpbGab0HqPqZVaG9xNet320OLZgDbWUXxO8DfKkYfKN4y23dr3aZZPpOwyMDVCIVQ/exec'; // ganti jika Anda deploy ulang & URL /exec berubah
 
 /* ================= ICONS ================= */
 const ICONS = {
@@ -312,6 +339,7 @@ const NAV = [
     {id:'vehicle', label:'Vehicle', icon:'vehicle'},
     {id:'partmaster', label:'Part Master', icon:'part'},
     {id:'labormaster', label:'Labor Master', icon:'labor'},
+    {id:'karyawan', label:'Karyawan / Role', icon:'customer'},
   ]},
   {group:'Work Order', items:[{id:'workorder', label:'Work Order (WIP)', icon:'wo'}]},
   {group:'Inventory Management', items:[
@@ -347,6 +375,7 @@ function buildNav(){
 }
 function toggleSidebar(){ document.getElementById('sidebar').classList.toggle('collapsed'); }
 buildNav();
+setActor(getActor());
 
 /* ================= HELPER API ================= */
 async function apiGet(action, params={}){
@@ -443,6 +472,48 @@ function dataTable(opts){
   return `<div id="${wrapId}"></div>`;
 }
 function initTable(id){ window['__tbl_'+id].search(''); }
+
+/* ================= COMBO SEARCH (dropdown pencarian: customer/no polisi/VIN, labor, part) ================= */
+function comboSearchHtml(id, placeholder){
+  return `<div class="combo" id="combo_${id}">
+    <input type="text" class="combo-input" id="${id}_input" placeholder="${esc(placeholder)}" autocomplete="off">
+    <input type="hidden" id="${id}">
+    <div class="combo-list" id="${id}_list"></div>
+  </div>`;
+}
+// opts: {getLabel(item), getSub(item)?, getValue(item), searchText(item)->string, onSelect(item)?, initial?}
+function attachComboSearch(id, items, opts){
+  const input = document.getElementById(id+'_input');
+  const hidden = document.getElementById(id);
+  const list = document.getElementById(id+'_list');
+  if(!input || !hidden || !list) return;
+  let currentFiltered = [];
+  function renderList(filtered){
+    currentFiltered = filtered;
+    if(!filtered.length){ list.innerHTML = `<div class="combo-empty">Tidak ditemukan</div>`; list.style.display='block'; return; }
+    list.innerHTML = filtered.slice(0,30).map((it,i)=>`<div class="combo-item" data-i="${i}"><div class="ci-label">${esc(opts.getLabel(it))}</div>${opts.getSub?`<div class="ci-sub">${esc(opts.getSub(it))}</div>`:''}</div>`).join('');
+    list.style.display='block';
+    list.querySelectorAll('.combo-item').forEach((el,i)=>{
+      el.addEventListener('mousedown', function(e){
+        e.preventDefault();
+        const it = currentFiltered[i];
+        hidden.value = opts.getValue(it);
+        input.value = opts.getLabel(it);
+        list.style.display='none';
+        if(opts.onSelect) opts.onSelect(it);
+      });
+    });
+  }
+  input.addEventListener('input', function(){
+    const q = input.value.trim().toLowerCase();
+    hidden.value = '';
+    if(!q){ list.style.display='none'; return; }
+    renderList(items.filter(it=> opts.searchText(it).toLowerCase().includes(q)));
+  });
+  input.addEventListener('focus', function(){ if(input.value.trim()) input.dispatchEvent(new Event('input')); });
+  input.addEventListener('blur', function(){ setTimeout(()=>{ list.style.display='none'; }, 150); });
+  if(opts.initial){ hidden.value = opts.getValue(opts.initial); input.value = opts.getLabel(opts.initial); }
+}
 
 /* ================= SVG CHART HELPERS (self-contained, sesuai spesifikasi mark) ================= */
 function svgTooltipShow(x,y,html){ const t=document.getElementById('svgTooltip'); t.innerHTML=html; t.style.left=(x+14)+'px'; t.style.top=(y+14)+'px'; t.style.display='block'; }
@@ -606,6 +677,7 @@ const views = {
   vehicle: renderVehicle,
   partmaster: renderPartMaster,
   labormaster: renderLaborMaster,
+  karyawan: renderKaryawan,
   workorder: renderWorkOrder,
   'po-created': renderPOCreated,
   'po-approval': renderPOApproval,
@@ -911,8 +983,99 @@ async function saveLabor(){
   if(res.success){ toast('Labor tersimpan'); closeDrawer(); renderLaborMaster(); } else toast(res.message,true);
 }
 
+/* ================= MASTER: KARYAWAN / ROLE (dipakai utk gate akses Work Order) ================= */
+const ROLE_BADGE = {'SA':'s1','Mekanik':'s2','Part Staff':'s4','Kasir':'s6','Manager':'critical'};
+async function renderKaryawan(){
+  setMain(skeletonRows(4));
+  const res = await apiGet('listUsers');
+  const data = res.data||[];
+  window.__users = data;
+  setMain(`
+    <div class="page-head"><div><h2>Karyawan / Role</h2><p>Master pengguna aktif yang menjalankan proses Work Order (${data.length} total)</p></div>
+      <button class="btn" onclick="formUser()">${icon('plus')} Tambah Karyawan</button></div>
+    <div class="panel">${dataTable({
+      id:'user', rows:data, searchKeys:['Username','Nama','Role'],
+      columns:[
+        {key:'Username', label:'Kode'}, {key:'Nama', label:'Nama'},
+        {key:'Role', label:'Role', render:u=>statusBadge(u.Role, ROLE_BADGE)},
+        {key:'Active', label:'Status', render:u=> (u.Active===true||u.Active==='TRUE'||u.Active===1) ? '<span class="badge good"><span class="dot"></span>Aktif</span>' : '<span class="badge muted"><span class="dot"></span>Nonaktif</span>'}
+      ],
+      rowActions:u=>`<button class="btn ghost sm" onclick='formUser(${JSON.stringify(u)})'>${icon('edit')} Edit</button>`
+    })}</div>
+  `);
+  initTable('user');
+}
+function formUser(u){
+  u = u || {};
+  const isEdit = !!u.Username;
+  openDrawer(`
+    <div class="drawer-head"><h3>${isEdit?'Edit':'Tambah'} Karyawan</h3><button class="drawer-close" onclick="closeDrawer()">&times;</button></div>
+    <div class="drawer-body">
+      <label>Kode / Username</label><input id="f_uname" ${isEdit?'disabled':''}>
+      <label>Nama</label><input id="f_unama">
+      <label>Role</label><select id="f_urole">${ROLES.map(r=>`<option value="${r}">${r}</option>`).join('')}</select>
+      <label>Status</label><select id="f_uactive"><option value="true">Aktif</option><option value="false">Nonaktif</option></select>
+    </div>
+    <div class="drawer-foot"><button class="btn secondary" onclick="closeDrawer()">Batal</button>
+    <button class="btn" onclick="submitUser(${isEdit})">Simpan</button></div>
+  `);
+  setFieldValue('f_uname', u.Username||'');
+  setFieldValue('f_unama', u.Nama||'');
+  const roleEl = document.getElementById('f_urole'); if(roleEl) roleEl.value = u.Role || 'SA';
+  const actEl = document.getElementById('f_uactive'); if(actEl) actEl.value = (u.Active===false||u.Active==='FALSE') ? 'false' : 'true';
+}
+async function submitUser(isEdit){
+  const payload = { Username: val('f_uname'), Nama: val('f_unama'), Role: val('f_urole'), Active: val('f_uactive')==='true' };
+  if(!payload.Username || !payload.Nama){ toast('Kode dan Nama wajib diisi', true); return; }
+  const res = await apiPost('saveUser', payload);
+  if(res.success){ toast('Karyawan tersimpan'); closeDrawer(); renderKaryawan(); } else toast(res.message, true);
+}
+
+/* ================= ROLE SWITCHER (simulasi login ringan utk gate proses Work Order) ================= */
+const ROLES = ['SA', 'Mekanik', 'Part Staff', 'Kasir', 'Manager'];
+function getActor(){
+  try{ return JSON.parse(localStorage.getItem('dms_actor')||'null') || {name:'Guest', role:'SA'}; }
+  catch(e){ return {name:'Guest', role:'SA'}; }
+}
+function setActor(actor){
+  try{ localStorage.setItem('dms_actor', JSON.stringify(actor)); }catch(e){}
+  const pillText = document.getElementById('rolePillText');
+  if(pillText) pillText.textContent = actor.name + ' · ' + actor.role;
+}
+async function openRoleSwitcher(){
+  const res = await apiGet('listUsers');
+  const users = (res.data||[]).filter(u=> !(u.Active===false||u.Active==='FALSE'));
+  const current = getActor();
+  openModal(`
+    <h3 style="margin:0 0 4px;">Ganti Pengguna Aktif</h3>
+    <p class="sub" style="margin:0 0 14px;">Menentukan aksi apa saja yang boleh Anda lakukan di Work Order (Dispatch, Material Picking, Completed, Invoice, Delivery, Pembatalan).</p>
+    ${users.length===0 ? `<div class="warn-box">Belum ada data karyawan. Tambahkan dulu lewat menu <b>Karyawan / Role</b>.</div>` : `
+    <label>Pilih Karyawan</label>
+    <select id="roleSwitchSelect">${users.map(u=>`<option value="${esc(u.Username)}">${esc(u.Nama)} — ${esc(u.Role)}</option>`).join('')}</select>
+    `}
+    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:6px;">
+      <button class="btn secondary" onclick="closeModal()">Tutup</button>
+      ${users.length? `<button class="btn" onclick="confirmRoleSwitch()">Gunakan</button>`:''}
+    </div>
+  `);
+  window.__roleSwitchUsers = users;
+  if(users.length){
+    const sel = document.getElementById('roleSwitchSelect');
+    const match = users.find(u=>u.Nama===current.name);
+    if(match) sel.value = match.Username;
+  }
+}
+function confirmRoleSwitch(){
+  const uname = val('roleSwitchSelect');
+  const u = (window.__roleSwitchUsers||[]).find(x=>x.Username===uname);
+  if(!u){ closeModal(); return; }
+  setActor({name:u.Nama, role:u.Role});
+  toast('Login sebagai '+u.Nama+' ('+u.Role+')');
+  closeModal();
+}
+
 /* ================= WORK ORDER (KANBAN + LIST) ================= */
-let woCart = { parts:[], labors:[] };
+let woCart = { parts:[], labors:[], sublets:[] };
 let woViewMode = 'kanban';
 const WO_FLOW = ['New','Dispatching','Material Picking','Completed','Invoice','Vehicle Delivery'];
 
@@ -965,16 +1128,17 @@ function drawKanban(data){
   el.querySelectorAll('.kanban-col').forEach(col=>{
     col.addEventListener('dragover', e=>{ e.preventDefault(); col.classList.add('dragover'); });
     col.addEventListener('dragleave', ()=> col.classList.remove('dragover'));
-    col.addEventListener('drop', async e=>{
+    col.addEventListener('drop', e=>{
       e.preventDefault(); col.classList.remove('dragover');
       const woid = e.dataTransfer.getData('text/plain');
       const newStatus = col.dataset.status;
       const wo = (window.__woData||[]).find(w=>w.WOID===woid);
       if(!wo || wo.Status===newStatus) return;
+      if(wo.Status==='Cancelled'){ toast('WO ini sudah dibatalkan', true); return; }
       const curIdx = WO_FLOW.indexOf(wo.Status), newIdx = WO_FLOW.indexOf(newStatus);
       if(newIdx < curIdx){ toast('Tidak bisa mundur status WO', true); return; }
-      const res = await apiPost('updateWorkOrderStatus', {WOID:woid, Status:newStatus});
-      if(res.success){ toast(`${woid} -> ${newStatus}`); renderWorkOrder(); } else toast(res.message, true);
+      if(newIdx > curIdx+1){ toast('Tidak bisa lompat status, selesaikan tahap sebelumnya dulu', true); return; }
+      openAdvanceModal(woid, wo.Status, newStatus);
     });
   });
 }
@@ -995,73 +1159,128 @@ function drawWOList(data){
 async function formWorkOrder(){
   const [cres,vres,pres,lres] = await Promise.all([apiGet('listCustomer'),apiGet('listVehicle'),apiGet('listPart'),apiGet('listLabor')]);
   window.__customers = cres.data||[]; window.__vehicles = vres.data||[]; window.__parts = pres.data||[]; window.__labors = lres.data||[];
-  woCart = { parts:[], labors:[] };
-  const custOptions = window.__customers.map(c=>`<option value="${c.CustomerID}">${esc(c.Nama)}</option>`).join('');
+  woCart = { parts:[], labors:[], sublets:[] };
+  const custMap = {}; window.__customers.forEach(c=>custMap[c.CustomerID]=c);
+  const vehicleChoices = window.__vehicles.map(v=>({...v, custName:(custMap[v.CustomerID]||{}).Nama||'', custHP:(custMap[v.CustomerID]||{}).NoHP||''}));
   openDrawer(`
     <div class="drawer-head"><h3>Buat Work Order</h3><button class="drawer-close" onclick="closeDrawer()">&times;</button></div>
     <div class="drawer-body">
+      <label>Cari Customer / No Polisi / No Rangka (VIN)</label>
+      ${comboSearchHtml('wo_veh_combo', 'Ketik nama, No HP, No Polisi, atau No Rangka...')}
+      <input type="hidden" id="wo_cust_id">
+      <p class="sub" style="margin:6px 0 14px;">Kendaraan belum terdaftar? Tambahkan dulu lewat menu Customer / Vehicle.</p>
       <div class="grid3">
-        <div><label>Customer</label><select id="wo_cust" onchange="fillVehicleOptions()">${custOptions}</select></div>
-        <div><label>Vehicle</label><select id="wo_veh"></select></div>
         <div><label>Jenis WO</label><select id="wo_jenis"><option>General Repair</option><option>Body Repair</option></select></div>
         <div><label>SA</label><input id="wo_sa"></div>
-        <div><label>Mekanik</label><input id="wo_mekanik"></div>
         <div><label>KM</label><input id="wo_km" type="number"></div>
       </div>
       <label>Keluhan</label><textarea id="wo_keluhan"></textarea>
+
       <h3 style="font-size:13.5px;margin-bottom:8px;">Part (dari Part Master)</h3>
       <div class="row-line">
-        <select id="wo_part_select" style="flex:2">${window.__parts.map(p=>`<option value="${p.PartNumber}">${esc(p.PartNumber)} - ${esc(p.PartName)} (stok:${p.StokAkhir})</option>`).join('')}</select>
+        <div style="flex:2">${comboSearchHtml('wo_part_combo','Cari No Part / Nama Part...')}</div>
         <input id="wo_part_qty" type="number" value="1" style="width:64px">
         <button class="btn secondary sm" onclick="addWOPart()">+ Add</button>
       </div>
       <div id="wo_part_list" class="chip-list"></div>
+
       <h3 style="font-size:13.5px;margin-bottom:8px;">Labor (dari Labor Master)</h3>
       <div class="row-line">
-        <select id="wo_labor_select" style="flex:2">${window.__labors.map(l=>`<option value="${l.LaborCode}">${esc(l.LaborCode)} - ${esc(l.LaborName)}</option>`).join('')}</select>
+        <div style="flex:2">${comboSearchHtml('wo_labor_combo','Cari Kode / Nama Jasa...')}</div>
         <input id="wo_labor_qty" type="number" value="1" style="width:64px">
         <button class="btn secondary sm" onclick="addWOLabor()">+ Add</button>
       </div>
       <div id="wo_labor_list" class="chip-list"></div>
+
+      <h3 style="font-size:13.5px;margin-bottom:2px;">Sublet (Pekerjaan Pihak Ketiga)</h3>
+      <p class="sub" style="margin:0 0 8px;">Masukkan dulu detail sublet (nama, qty, harga beli & harga jual), baru tambahkan ke item Work Order.</p>
+      <div class="grid3">
+        <div><label>Nama Sublet</label><input id="wo_sublet_name" placeholder="mis. Cuci Karpet, Spooring"></div>
+        <div><label>Qty</label><input id="wo_sublet_qty" type="number" value="1"></div>
+        <div><label>Harga Beli (Vendor)</label><input id="wo_sublet_hb" type="number" value="0"></div>
+      </div>
+      <div class="row-line">
+        <div style="flex:1"><label>Harga Jual (Customer)</label><input id="wo_sublet_hj" type="number" value="0"></div>
+        <button class="btn secondary sm" onclick="addWOSublet()">+ Tambah ke Item Sublet</button>
+      </div>
+      <div id="wo_sublet_list" class="chip-list"></div>
+
       <div class="panel" style="margin-top:10px;background:var(--surface-2);"><div class="kv"><span>Estimasi Total</span><b id="wo_total_preview">Rp 0</b></div></div>
     </div>
     <div class="drawer-foot"><button class="btn secondary" onclick="closeDrawer()">Batal</button>
     <button class="btn" onclick="submitWorkOrder()">Simpan Work Order</button></div>
   `);
-  fillVehicleOptions();
+  attachComboSearch('wo_veh_combo', vehicleChoices, {
+    getLabel:v=>`${v.NoPolisi} — ${v.custName||'(tanpa nama)'}`,
+    getSub:v=>`${v.Brand||''} ${v.Model||''} · Rangka: ${v.NoRangka||'-'}${v.custHP?' · '+v.custHP:''}`,
+    getValue:v=>v.VehicleID,
+    searchText:v=>[v.NoPolisi,v.NoRangka,v.NoMesin,v.custName,v.custHP].join(' '),
+    onSelect:v=>{ document.getElementById('wo_cust_id').value = v.CustomerID; }
+  });
+  attachComboSearch('wo_part_combo', window.__parts, {
+    getLabel:p=>`${p.PartNumber} - ${p.PartName}`,
+    getSub:p=>`Stok: ${p.StokAkhir} · ${fmtMoneyFull(p.HargaJual)}`,
+    getValue:p=>p.PartNumber,
+    searchText:p=>`${p.PartNumber} ${p.PartName}`
+  });
+  attachComboSearch('wo_labor_combo', window.__labors, {
+    getLabel:l=>`${l.LaborCode} - ${l.LaborName}`,
+    getSub:l=>fmtMoneyFull(l.Harga),
+    getValue:l=>l.LaborCode,
+    searchText:l=>`${l.LaborCode} ${l.LaborName}`
+  });
   renderWOLists();
-}
-function fillVehicleOptions(){
-  const custId = val('wo_cust');
-  const vehicles = (window.__vehicles||[]).filter(v=>v.CustomerID===custId);
-  document.getElementById('wo_veh').innerHTML = vehicles.map(v=>`<option value="${v.VehicleID}">${esc(v.NoPolisi)} - ${esc(v.Brand)} ${esc(v.Model)}</option>`).join('') || '<option value="">(tidak ada kendaraan)</option>';
 }
 function addWOPart(){
-  const pn = val('wo_part_select'); const qty = Number(val('wo_part_qty'))||1;
+  const pn = val('wo_part_combo');
+  if(!pn){ toast('Pilih part terlebih dahulu dari hasil pencarian', true); return; }
+  const qty = Number(val('wo_part_qty'))||1;
   const part = window.__parts.find(p=>p.PartNumber===pn);
+  if(!part) return;
   woCart.parts.push({PartNumber:pn, PartName:part.PartName, Qty:qty, Harga:part.HargaJual});
   renderWOLists();
+  setFieldValue('wo_part_combo',''); const inp=document.getElementById('wo_part_combo_input'); if(inp) inp.value='';
 }
 function removeWOPart(i){ woCart.parts.splice(i,1); renderWOLists(); }
 function addWOLabor(){
-  const lc = val('wo_labor_select'); const qty = Number(val('wo_labor_qty'))||1;
+  const lc = val('wo_labor_combo');
+  if(!lc){ toast('Pilih jasa terlebih dahulu dari hasil pencarian', true); return; }
+  const qty = Number(val('wo_labor_qty'))||1;
   const labor = window.__labors.find(l=>l.LaborCode===lc);
+  if(!labor) return;
   woCart.labors.push({LaborCode:lc, LaborName:labor.LaborName, Qty:qty, Harga:labor.Harga});
   renderWOLists();
+  setFieldValue('wo_labor_combo',''); const inp=document.getElementById('wo_labor_combo_input'); if(inp) inp.value='';
 }
 function removeWOLabor(i){ woCart.labors.splice(i,1); renderWOLists(); }
+function addWOSublet(){
+  const name = val('wo_sublet_name').trim();
+  const qty = Number(val('wo_sublet_qty'))||0;
+  const hb = Number(val('wo_sublet_hb'))||0;
+  const hj = Number(val('wo_sublet_hj'))||0;
+  if(!name || qty<=0){ toast('Isi nama sublet dan qty terlebih dahulu', true); return; }
+  woCart.sublets.push({SubletName:name, Qty:qty, HargaBeli:hb, HargaJual:hj});
+  renderWOLists();
+  setFieldValue('wo_sublet_name',''); setFieldValue('wo_sublet_qty',1); setFieldValue('wo_sublet_hb',0); setFieldValue('wo_sublet_hj',0);
+}
+function removeWOSublet(i){ woCart.sublets.splice(i,1); renderWOLists(); }
 function renderWOLists(){
   document.getElementById('wo_part_list').innerHTML = woCart.parts.map((p,i)=>`<div class="chip">${esc(p.PartName)} ×${p.Qty} — ${fmtMoneyFull(p.Harga*p.Qty)}<button onclick="removeWOPart(${i})">&times;</button></div>`).join('') || '<span class="muted" style="font-size:12px;">Belum ada part.</span>';
   document.getElementById('wo_labor_list').innerHTML = woCart.labors.map((l,i)=>`<div class="chip">${esc(l.LaborName)} ×${l.Qty} — ${fmtMoneyFull(l.Harga*l.Qty)}<button onclick="removeWOLabor(${i})">&times;</button></div>`).join('') || '<span class="muted" style="font-size:12px;">Belum ada jasa.</span>';
-  const total = woCart.parts.reduce((s,p)=>s+p.Harga*p.Qty,0) + woCart.labors.reduce((s,l)=>s+l.Harga*l.Qty,0);
+  const subletListEl = document.getElementById('wo_sublet_list');
+  if(subletListEl) subletListEl.innerHTML = woCart.sublets.map((s,i)=>`<div class="chip">${esc(s.SubletName)} ×${s.Qty} — ${fmtMoneyFull(s.HargaJual*s.Qty)}<button onclick="removeWOSublet(${i})">&times;</button></div>`).join('') || '<span class="muted" style="font-size:12px;">Belum ada sublet.</span>';
+  const total = woCart.parts.reduce((s,p)=>s+p.Harga*p.Qty,0) + woCart.labors.reduce((s,l)=>s+l.Harga*l.Qty,0) + woCart.sublets.reduce((s,x)=>s+x.HargaJual*x.Qty,0);
   const totalEl = document.getElementById('wo_total_preview'); if(totalEl) totalEl.textContent = fmtMoneyFull(total);
 }
 async function submitWorkOrder(){
+  const custId = val('wo_cust_id'); const vehId = val('wo_veh_combo');
+  if(!custId || !vehId){ toast('Pilih Customer / Kendaraan terlebih dahulu lewat kotak pencarian', true); return; }
   const payload = {
-    CustomerID: val('wo_cust'), VehicleID: val('wo_veh'), JenisWO: val('wo_jenis'),
-    SA: val('wo_sa'), Mekanik: val('wo_mekanik'), KM: val('wo_km'), Keluhan: val('wo_keluhan'),
+    CustomerID: custId, VehicleID: vehId, JenisWO: val('wo_jenis'),
+    SA: val('wo_sa'), KM: val('wo_km'), Keluhan: val('wo_keluhan'),
     parts: woCart.parts.map(p=>({PartNumber:p.PartNumber, Qty:p.Qty})),
-    labors: woCart.labors.map(l=>({LaborCode:l.LaborCode, Qty:l.Qty}))
+    labors: woCart.labors.map(l=>({LaborCode:l.LaborCode, Qty:l.Qty})),
+    sublets: woCart.sublets.map(s=>({SubletName:s.SubletName, Qty:s.Qty, HargaBeli:s.HargaBeli, HargaJual:s.HargaJual}))
   };
   const res = await apiPost('createWorkOrder', payload);
   if(res.success){ toast('Work Order dibuat: '+res.id); closeDrawer(); renderWorkOrder(); } else toast(res.message,true);
@@ -1069,10 +1288,14 @@ async function submitWorkOrder(){
 async function viewWorkOrder(woid){
   const res = await apiGet('getWorkOrder', {id:woid});
   if(!res.success){ toast(res.message,true); return; }
-  const {header, parts, labors} = res.data;
+  const {header, parts, labors, sublets} = res.data;
   const curIdx = WO_FLOW.indexOf(header.Status);
-  const nextStatus = WO_FLOW[curIdx+1];
-  const stepperHtml = `<div class="stepper">${WO_FLOW.map((s,i)=>`
+  const nextStatus = header.Status==='Cancelled' ? null : WO_FLOW[curIdx+1];
+  const editable = ['New','Dispatching','Material Picking','Completed'].indexOf(header.Status)!==-1;
+  const actor = getActor();
+  const stepperHtml = header.Status==='Cancelled'
+    ? `<div class="danger-box">⚠ Work Order ini <b>DIBATALKAN</b> oleh ${esc(header.CancelledBy||'-')} pada ${fmtDate(header.TglCancel)}.<br>Alasan: ${esc(header.CancelReason||'-')}</div>`
+    : `<div class="stepper">${WO_FLOW.map((s,i)=>`
     <div class="step ${i<curIdx?'done':''} ${i===curIdx?'current':''}">
       <div class="circle">${i<curIdx?'✓':i+1}</div><div class="stitle">${s}</div>
     </div>`).join('')}</div>`;
@@ -1089,26 +1312,186 @@ async function viewWorkOrder(woid){
         <div class="kv"><span>KM</span><b>${esc(header.KM)||'-'}</b></div>
       </div>
       <p class="muted" style="font-size:13px;">Keluhan: ${esc(header.Keluhan)||'-'}</p>
-      <h3 style="font-size:13.5px;">Part</h3>
+
+      <div class="flex-between"><h3 style="font-size:13.5px;margin:14px 0 8px;">Part</h3>${editable?`<button class="btn ghost sm" onclick="openAddItemModal('${woid}','part')">${icon('plus')} Tambah Part</button>`:''}</div>
       <table><tr><th>Part</th><th>Qty</th><th>Harga</th><th>Subtotal</th><th>Status</th></tr>
-        ${parts.map(p=>`<tr><td>${esc(p.PartName)}</td><td>${p.Qty}</td><td>${fmtMoneyFull(p.HargaSatuan)}</td><td>${fmtMoneyFull(p.Subtotal)}</td><td><span class="badge ${p.StatusPicking==='Picked'?'good':'muted'}"><span class="dot"></span>${p.StatusPicking}</span></td></tr>`).join('') || `<tr><td colspan="5">${emptyState('Tidak ada part')}</td></tr>`}
+        ${parts.map(p=>`<tr><td>${esc(p.PartName)}</td><td>${p.Qty}</td><td>${fmtMoneyFull(p.HargaSatuan)}</td><td>${fmtMoneyFull(p.Subtotal)}</td><td><span class="badge ${p.StatusPicking==='Picked'?'good':p.StatusPicking==='Returned'?'critical':'muted'}"><span class="dot"></span>${p.StatusPicking}</span></td></tr>`).join('') || `<tr><td colspan="5">${emptyState('Tidak ada part')}</td></tr>`}
       </table>
-      <h3 style="font-size:13.5px;">Labor</h3>
+
+      <div class="flex-between"><h3 style="font-size:13.5px;margin:14px 0 8px;">Labor</h3>${editable?`<button class="btn ghost sm" onclick="openAddItemModal('${woid}','labor')">${icon('plus')} Tambah Jasa</button>`:''}</div>
       <table><tr><th>Jasa</th><th>Qty</th><th>Harga</th><th>Subtotal</th></tr>
         ${labors.map(l=>`<tr><td>${esc(l.LaborName)}</td><td>${l.Qty}</td><td>${fmtMoneyFull(l.HargaSatuan)}</td><td>${fmtMoneyFull(l.Subtotal)}</td></tr>`).join('') || `<tr><td colspan="4">${emptyState('Tidak ada labor')}</td></tr>`}
       </table>
+
+      <div class="flex-between"><h3 style="font-size:13.5px;margin:14px 0 8px;">Sublet</h3>${editable?`<button class="btn ghost sm" onclick="openAddItemModal('${woid}','sublet')">${icon('plus')} Tambah Sublet</button>`:''}</div>
+      <table><tr><th>Sublet</th><th>Qty</th><th>Harga Jual</th><th>Subtotal</th></tr>
+        ${(sublets||[]).map(s=>`<tr><td>${esc(s.SubletName)}</td><td>${s.Qty}</td><td>${fmtMoneyFull(s.HargaJual)}</td><td>${fmtMoneyFull(s.Subtotal)}</td></tr>`).join('') || `<tr><td colspan="4">${emptyState('Tidak ada sublet')}</td></tr>`}
+      </table>
+
       <div class="kv" style="font-size:15px;margin-top:8px;"><span>Total Work Order</span><b>${fmtMoneyFull(header.TotalWO)}</b></div>
-      ${header.Status==='Material Picking' ? `<p class="sub" style="margin-top:8px;">ℹ Saat masuk status ini, stok part otomatis berkurang (Outbound Part).</p>`:''}
+      ${!editable && header.Status!=='Cancelled' ? `<p class="sub" style="margin-top:8px;">ℹ WO sudah masuk status Invoice, tidak bisa ditambah item lagi.</p>`:''}
     </div>
     <div class="drawer-foot">
       <button class="btn secondary" onclick="closeDrawer()">Tutup</button>
-      ${nextStatus ? `<button class="btn good" onclick="advanceWO('${header.WOID}','${nextStatus}')">${icon('approve')} Set: ${nextStatus}</button>` : '<span class="muted">Selesai</span>'}
+      <div style="display:flex;gap:8px;">
+        ${header.Status==='Vehicle Delivery' && actor.role==='Manager' ? `<button class="btn critical" onclick="openCancelModal('${woid}')">Batalkan WO</button>`:''}
+        ${nextStatus ? `<button class="btn good" onclick="openAdvanceModal('${woid}','${header.Status}','${nextStatus}')">${icon('approve')} Set: ${nextStatus}</button>` : (header.Status!=='Cancelled' ? '<span class="muted">Selesai</span>':'')}
+      </div>
     </div>
   `);
 }
-async function advanceWO(woid, status){
-  const res = await apiPost('updateWorkOrderStatus', {WOID:woid, Status:status});
-  if(res.success){ toast('Status diperbarui ke '+status); closeDrawer(); renderWorkOrder(); } else toast(res.message,true);
+
+/* ---- tambah item (Part/Labor/Sublet) ke WO yang sudah ada, sebelum masuk status Invoice ---- */
+async function openAddItemModal(woid, type){
+  if(type==='part' && !(window.__parts&&window.__parts.length)){ const r=await apiGet('listPart'); window.__parts=r.data||[]; }
+  if(type==='labor' && !(window.__labors&&window.__labors.length)){ const r=await apiGet('listLabor'); window.__labors=r.data||[]; }
+  let bodyHtml='';
+  if(type==='part'){
+    bodyHtml = `<label>Cari Part</label>${comboSearchHtml('ai_part_combo','Cari No Part / Nama Part...')}
+      <label>Qty</label><input id="ai_part_qty" type="number" value="1">`;
+  } else if(type==='labor'){
+    bodyHtml = `<label>Cari Jasa</label>${comboSearchHtml('ai_labor_combo','Cari Kode / Nama Jasa...')}
+      <label>Qty</label><input id="ai_labor_qty" type="number" value="1">`;
+  } else {
+    bodyHtml = `<label>Nama Sublet</label><input id="ai_sublet_name">
+      <div class="grid3">
+        <div><label>Qty</label><input id="ai_sublet_qty" type="number" value="1"></div>
+        <div><label>Harga Beli</label><input id="ai_sublet_hb" type="number" value="0"></div>
+        <div><label>Harga Jual</label><input id="ai_sublet_hj" type="number" value="0"></div>
+      </div>`;
+  }
+  const titleMap = {part:'Tambah Part ke WO', labor:'Tambah Jasa ke WO', sublet:'Tambah Sublet ke WO'};
+  openModal(`
+    <h3 style="margin:0 0 14px;">${titleMap[type]}</h3>
+    ${bodyHtml}
+    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:6px;">
+      <button class="btn secondary" onclick="closeModal()">Batal</button>
+      <button class="btn" onclick="submitAddItem('${woid}','${type}')">Tambahkan</button>
+    </div>
+  `);
+  if(type==='part'){
+    attachComboSearch('ai_part_combo', window.__parts, {
+      getLabel:p=>`${p.PartNumber} - ${p.PartName}`, getSub:p=>`Stok: ${p.StokAkhir} · ${fmtMoneyFull(p.HargaJual)}`,
+      getValue:p=>p.PartNumber, searchText:p=>`${p.PartNumber} ${p.PartName}`
+    });
+  } else if(type==='labor'){
+    attachComboSearch('ai_labor_combo', window.__labors, {
+      getLabel:l=>`${l.LaborCode} - ${l.LaborName}`, getSub:l=>fmtMoneyFull(l.Harga),
+      getValue:l=>l.LaborCode, searchText:l=>`${l.LaborCode} ${l.LaborName}`
+    });
+  }
+}
+async function submitAddItem(woid, type){
+  let res;
+  if(type==='part'){
+    const pn = val('ai_part_combo'); const qty = Number(val('ai_part_qty'))||1;
+    if(!pn){ toast('Pilih part terlebih dahulu', true); return; }
+    res = await apiPost('addWOPart', {WOID:woid, PartNumber:pn, Qty:qty});
+  } else if(type==='labor'){
+    const lc = val('ai_labor_combo'); const qty = Number(val('ai_labor_qty'))||1;
+    if(!lc){ toast('Pilih jasa terlebih dahulu', true); return; }
+    res = await apiPost('addWOLabor', {WOID:woid, LaborCode:lc, Qty:qty});
+  } else {
+    const name = val('ai_sublet_name').trim(); const qty=Number(val('ai_sublet_qty'))||0;
+    const hb=Number(val('ai_sublet_hb'))||0; const hj=Number(val('ai_sublet_hj'))||0;
+    if(!name||qty<=0){ toast('Isi nama sublet dan qty', true); return; }
+    res = await apiPost('addWOSublet', {WOID:woid, SubletName:name, Qty:qty, HargaBeli:hb, HargaJual:hj});
+  }
+  if(res.success){ toast('Item ditambahkan'); closeModal(); viewWorkOrder(woid); renderWorkOrder(); } else toast(res.message,true);
+}
+
+/* ---- transisi status WO: Dispatching (pilih mekanik), Material Picking (submit part staff), lainnya (konfirmasi + gate role) ---- */
+async function openAdvanceModal(woid, fromStatus, toStatus){
+  const actor = getActor();
+  if(toStatus==='Dispatching'){
+    const ures = await apiGet('listUsers');
+    const mekaniks = (ures.data||[]).filter(u=>u.Role==='Mekanik' && !(u.Active===false||u.Active==='FALSE'));
+    openModal(`
+      <h3 style="margin:0 0 4px;">Dispatching — Pilih Mekanik</h3>
+      <p class="sub" style="margin:0 0 14px;">WO ${esc(woid)} akan ditugaskan ke mekanik berikut.</p>
+      ${mekaniks.length===0? `<div class="warn-box">Belum ada karyawan dengan role Mekanik. Tambahkan lewat menu Karyawan / Role, atau ketik nama manual di bawah.</div>
+      <label>Nama Mekanik</label><input id="disp_mekanik_manual" placeholder="Nama mekanik">` : `
+      <label>Mekanik</label>${comboSearchHtml('disp_mekanik_combo','Cari nama mekanik...')}`}
+      <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:10px;">
+        <button class="btn secondary" onclick="closeModal()">Batal</button>
+        <button class="btn good" onclick="confirmDispatch('${woid}', ${mekaniks.length>0})">${icon('approve')} Dispatch</button>
+      </div>
+    `);
+    if(mekaniks.length>0){
+      attachComboSearch('disp_mekanik_combo', mekaniks, {getLabel:u=>u.Nama, getValue:u=>u.Nama, searchText:u=>u.Nama});
+    }
+    return;
+  }
+  if(toStatus==='Material Picking'){
+    const wres = await apiGet('getWorkOrder', {id:woid});
+    const parts = (wres.data && wres.data.parts) || [];
+    const pending = parts.filter(p=>p.StatusPicking!=='Picked');
+    openModal(`
+      <h3 style="margin:0 0 4px;">Material Picking</h3>
+      <p class="sub" style="margin:0 0 10px;">Part Staff memberikan sparepart sesuai WO ${esc(woid)}, lalu klik Submit. Stok akan otomatis terpotong.</p>
+      ${actor.role!=='Part Staff' && actor.role!=='Manager' ? `<div class="warn-box">Aksi ini hanya untuk role <b>Part Staff</b>. Anda login sebagai ${esc(actor.role)}.</div>`:''}
+      ${pending.length===0 ? `<div class="warn-box">Semua part sudah dipicking.</div>` :
+      pending.map(p=>`<label class="pick-row"><input type="checkbox" class="pick-chk" data-rowid="${esc(p.RowID)}" checked><span class="prname">${esc(p.PartName)}</span><span class="prqty">Qty: ${p.Qty}</span></label>`).join('')}
+      <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:14px;">
+        <button class="btn secondary" onclick="closeModal()">Tutup</button>
+        ${pending.length>0?`<button class="btn good" onclick="confirmMaterialPicking('${woid}')">Submit Pengambilan Part</button>`:''}
+      </div>
+    `);
+    return;
+  }
+  const roleMap = {'Completed':'SA','Invoice':'Kasir','Vehicle Delivery':'SA'};
+  const requiredRole = roleMap[toStatus];
+  const allowed = !requiredRole || actor.role===requiredRole || actor.role==='Manager';
+  openModal(`
+    <h3 style="margin:0 0 4px;">Set Status: ${esc(toStatus)}</h3>
+    <p class="sub" style="margin:0 0 14px;">WO ${esc(woid)} akan diperbarui ke status <b>${esc(toStatus)}</b>.</p>
+    ${!allowed?`<div class="warn-box">Aksi ini hanya untuk role <b>${esc(requiredRole)}</b> (atau Manager). Anda login sebagai ${esc(actor.role)}.</div>`:''}
+    <div style="display:flex;justify-content:flex-end;gap:10px;">
+      <button class="btn secondary" onclick="closeModal()">Batal</button>
+      <button class="btn good" onclick="confirmAdvance('${woid}','${toStatus}')">${icon('approve')} Konfirmasi</button>
+    </div>
+  `);
+}
+async function confirmDispatch(woid, hasMekanikMaster){
+  const actor = getActor();
+  const mekanikName = hasMekanikMaster ? val('disp_mekanik_combo') : val('disp_mekanik_manual');
+  if(!mekanikName){ toast('Pilih / isi nama mekanik terlebih dahulu', true); return; }
+  const res = await apiPost('updateWorkOrderStatus', {WOID:woid, Status:'Dispatching', Mekanik:mekanikName, ActorRole:actor.role, ActorName:actor.name});
+  if(res.success){ toast('WO didispatch ke '+mekanikName); closeModal(); closeDrawer(); renderWorkOrder(); } else toast(res.message,true);
+}
+async function confirmMaterialPicking(woid){
+  const actor = getActor();
+  const rowIds = Array.from(document.querySelectorAll('.pick-chk:checked')).map(el=>el.dataset.rowid);
+  if(rowIds.length===0){ toast('Pilih minimal 1 part', true); return; }
+  const res = await apiPost('submitMaterialPicking', {WOID:woid, ActorRole:actor.role, ActorName:actor.name, pickedRowIds:rowIds});
+  if(res.success){ toast('Material picking disubmit'); closeModal(); closeDrawer(); renderWorkOrder(); } else toast(res.message,true);
+}
+async function confirmAdvance(woid, status){
+  const actor = getActor();
+  const res = await apiPost('updateWorkOrderStatus', {WOID:woid, Status:status, ActorRole:actor.role, ActorName:actor.name});
+  if(res.success){ toast('Status diperbarui ke '+status); closeModal(); closeDrawer(); renderWorkOrder(); } else toast(res.message,true);
+}
+
+/* ---- pembatalan WO setelah Vehicle Delivery, hanya oleh Manager, dgn pengembalian stok ---- */
+function openCancelModal(woid){
+  const actor = getActor();
+  openModal(`
+    <h3 style="margin:0 0 4px;">Batalkan Work Order</h3>
+    <p class="sub" style="margin:0 0 14px;">WO ${esc(woid)} sudah Vehicle Delivery. Pembatalan akan mengembalikan stok part yang sudah terpotong. Hanya role <b>Manager</b> yang bisa melakukan ini.</p>
+    ${actor.role!=='Manager'?`<div class="danger-box">Anda login sebagai ${esc(actor.role)}, bukan Manager. Ganti pengguna aktif terlebih dahulu lewat pojok kanan atas.</div>`:''}
+    <label>Alasan Pembatalan</label><textarea id="cancel_reason" placeholder="mis. Customer membatalkan servis, salah input, dll."></textarea>
+    <div style="display:flex;justify-content:flex-end;gap:10px;">
+      <button class="btn secondary" onclick="closeModal()">Tutup</button>
+      <button class="btn critical" onclick="confirmCancelWO('${woid}')">Batalkan &amp; Reverse Stok</button>
+    </div>
+  `);
+}
+async function confirmCancelWO(woid){
+  const actor = getActor();
+  const reason = val('cancel_reason').trim();
+  if(!reason){ toast('Alasan pembatalan wajib diisi', true); return; }
+  const res = await apiPost('cancelWorkOrder', {WOID:woid, ActorRole:actor.role, ActorName:actor.name, Reason:reason});
+  if(res.success){ toast('Work Order dibatalkan, stok dikembalikan'); closeModal(); closeDrawer(); renderWorkOrder(); } else toast(res.message,true);
 }
 
 /* ================= INVENTORY: PO CREATED ================= */
