@@ -1803,7 +1803,7 @@ function drawKanban(data){
       e.preventDefault(); col.classList.remove('dragover');
       const woid = e.dataTransfer.getData('text/plain');
       const newStatus = col.dataset.status;
-      const wo = (window.__woData||[]).find(w=>w.WOID===woid);
+      const wo = (window.__woData||[]).find(w=>String(w.WOID)===String(woid));
       if(!wo || wo.Status===newStatus) return;
       if(wo.Status==='Cancelled'){ toast('WO ini sudah dibatalkan', true); return; }
       const curIdx = WO_FLOW.indexOf(wo.Status), newIdx = WO_FLOW.indexOf(newStatus);
@@ -1969,7 +1969,7 @@ function addWOLabor(){
   if(!lc){ toast('Pilih jasa terlebih dahulu dari hasil pencarian', true); return; }
   const qty = Number(val('wo_labor_qty'))||1;
   const disc = Math.min(1, Math.max(0, Number(val('wo_labor_disc'))||0));
-  const labor = window.__labors.find(l=>l.LaborCode===lc);
+  const labor = window.__labors.find(l=>String(l.LaborCode)===String(lc));
   if(!labor) return;
   woCart.labors.push({LaborCode:lc, LaborName:labor.LaborName, Qty:qty, Harga:labor.Harga, DiskonPersen:disc});
   renderWOLists();
@@ -2209,7 +2209,7 @@ async function submitAddItem(woid, type){
   if(type==='part'){
     const pn = val('ai_part_combo'); const qty = Number(val('ai_part_qty'))||1;
     if(!pn){ toast('Pilih part terlebih dahulu', true); return; }
-    const partObj = (window.__parts||[]).find(x=>x.PartNumber===pn);
+    const partObj = (window.__parts||[]).find(x=>String(x.PartNumber)===String(pn));
     if(partObj && Number(partObj.StokAkhir)<=0){ toast('Stok part "'+partObj.PartName+'" habis, tidak bisa ditambahkan', true); return; }
     res = await apiPost('addWOPart', {WOID:woid, PartNumber:pn, Qty:qty});
   } else if(type==='labor'){
@@ -2643,13 +2643,13 @@ async function formPO(){
 }
 function updatePOPartHargaPreview(){
   const pn = val('po_part_select');
-  const part = window.__parts.find(p=>p.PartNumber===pn);
+  const part = window.__parts.find(p=>String(p.PartNumber)===String(pn));
   const el = document.getElementById('po_part_harga_preview');
   if(el) el.textContent = part ? fmtMoneyFull(parseMoneyLoose(part.HargaBeli)) : '-';
 }
 function addPOPart(){
   const pn = val('po_part_select'); const qty = Number(val('po_part_qty'))||1;
-  const part = window.__parts.find(p=>p.PartNumber===pn);
+  const part = window.__parts.find(p=>String(p.PartNumber)===String(pn));
   const harga = part ? parseMoneyLoose(part.HargaBeli) : 0;
   if(!part || harga<=0){ toast('Part ini belum punya Harga Beli di Part Master, tidak bisa dimasukkan ke PO.', true); return; }
   poCart.push({PartNumber:pn, PartName:part.PartName, QtyOrder:qty, HargaSatuan:harga});
