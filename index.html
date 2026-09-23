@@ -157,6 +157,20 @@ textarea{resize:vertical;min-height:60px;}
   border-left:1px solid var(--border-strong);z-index:61;transition:right .25s cubic-bezier(.2,.8,.2,1);
   display:flex;flex-direction:column;box-shadow:-16px 0 40px rgba(0,0,0,.4);}
 .drawer.show{right:0;}
+.drawer.wide{width:1180px;right:-1180px;}
+.drawer.wide.show{right:0;}
+.drawer-body.wide-body{padding:0;overflow:hidden;display:flex;}
+.wo-grid{display:flex;flex:1;min-height:0;}
+.wo-grid .wo-col{flex:1;padding:22px 24px;overflow-y:auto;}
+.wo-grid .wo-col-right{max-width:360px;border-left:1px solid var(--border);background:var(--surface-2);}
+.wo-items-section{position:relative;}
+.wo-items-section.locked{opacity:.4;pointer-events:none;filter:grayscale(.3);}
+.wo-lock-hint{background:rgba(250,178,25,.12);border:1px solid rgba(250,178,25,.35);color:#fcd374;
+  padding:10px 14px;border-radius:10px;font-size:12.5px;margin-bottom:14px;}
+.item-disc-input{width:60px;}
+.disc-ratio-bar{height:6px;border-radius:4px;background:var(--surface-3);overflow:hidden;margin:8px 0;}
+.disc-ratio-bar > div{height:100%;background:var(--brand);transition:width .2s;}
+.disc-ratio-bar.over > div{background:#d03b3b;}
 .drawer-head{padding:20px 24px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;}
 .drawer-head h3{margin:0;font-size:17px;font-weight:800;}
 .drawer-close{background:var(--surface-2);border:none;color:var(--ink-2);width:32px;height:32px;border-radius:9px;cursor:pointer;}
@@ -501,8 +515,8 @@ function openModal(html){ document.getElementById('modalBody').innerHTML = html;
 function closeModal(){ document.getElementById('modalBg').classList.remove('show'); }
 document.getElementById('modalBg').addEventListener('click', e=>{ if(e.target.id==='modalBg') closeModal(); });
 
-function openDrawer(html){ document.getElementById('drawer').innerHTML = html; document.getElementById('drawerBg').classList.add('show'); requestAnimationFrame(()=>document.getElementById('drawer').classList.add('show')); }
-function closeDrawer(){ document.getElementById('drawer').classList.remove('show'); setTimeout(()=>document.getElementById('drawerBg').classList.remove('show'),250); }
+function openDrawer(html, wide){ const d=document.getElementById('drawer'); d.innerHTML = html; d.classList.toggle('wide', !!wide); document.getElementById('drawerBg').classList.add('show'); requestAnimationFrame(()=>d.classList.add('show')); }
+function closeDrawer(){ const d=document.getElementById('drawer'); d.classList.remove('show'); setTimeout(()=>{ document.getElementById('drawerBg').classList.remove('show'); d.classList.remove('wide'); },250); }
 document.getElementById('drawerBg').addEventListener('click', e=>{ if(e.target.id==='drawerBg') closeDrawer(); });
 
 function skeletonRows(n){ return Array.from({length:n}).map(()=>`<div class="skeleton skel-row"></div>`).join(''); }
@@ -839,11 +853,13 @@ const main = document.getElementById('main');
 function setMain(html){ main.innerHTML = html; }
 
 /* ================= DASHBOARD ================= */
-async function renderDashboard(){
-  setMain(`<div class="cards">${Array.from({length:4}).map(()=>'<div class="skeleton" style="height:90px"></div>').join('')}</div><div class="skeleton" style="height:260px"></div>`);
-  const res = await apiGet('getDashboard');
+async function renderDashboard(period){
+  period = period || 'this_month';
+  setMain(`<div class="cards">${Array.from({length:5}).map(()=>'<div class="skeleton" style="height:90px"></div>').join('')}</div><div class="skeleton" style="height:260px"></div>`);
+  const res = await apiGet('getDashboard', {period});
   if(!res.success){ setMain(`<div class="panel">${emptyState('Gagal memuat dashboard: '+esc(res.message))}</div>`); return; }
   const d = res.data;
+  const trend = d.periodTrend || {};
 
   document.getElementById('bellDot').style.display = d.lowStockCount>0 ? 'block':'none';
   const navBadge = document.getElementById('navLowStock');
@@ -855,16 +871,21 @@ async function renderDashboard(){
   const poItems = poEntries.map(([label,value],i)=>({label,value,colorVar: PO_STATUS_BADGE[label]==='good'?'s6':PO_STATUS_BADGE[label]==='critical'?'s5': (poColors[i]||'s7')}));
 
   setMain(`
+    <div class="page-head"><div><h2>Dashboard</h2><p>Ringkasan performa periode: <b>${esc(periodLabel(period))}</b></p></div>
+      <div><label style="font-size:11px;display:block;">Periode Scorecard</label>${periodSelectorHtml('dash_period', period, 'renderDashboard(this.value)')}</div>
+    </div>
     <div class="cards">
       <div class="stat-card"><div class="icon" style="background:rgba(57,135,229,.16);color:var(--s1)">${icon('wo')}</div>
-        <div class="label">Total Work Order</div><div class="value">${d.totalWO}</div></div>
+        <div class="label">WO Baru (${esc(periodLabel(period))})</div><div class="value">${d.woBaruPeriode}${trendBadgeHtml(trend.woBaru)}</div></div>
       <div class="stat-card"><div class="icon" style="background:rgba(201,133,0,.16);color:var(--s4)">${icon('po')}</div>
         <div class="label">PO Menunggu Approval</div><div class="value">${d.poPendingApproval}</div></div>
       <div class="stat-card"><div class="icon" style="background:rgba(208,59,59,.16);color:var(--critical)">${icon('warning')}</div>
         <div class="label">Part Stok Rendah</div><div class="value">${d.lowStockCount}</div>
         ${d.lowStockCount>0?`<div class="delta down">Perlu tindakan</div>`:`<div class="delta up">Semua aman</div>`}</div>
       <div class="stat-card"><div class="icon" style="background:rgba(12,163,12,.16);color:var(--good)">${icon('money')}</div>
-        <div class="label">Revenue Bulan Ini</div><div class="value" style="font-size:19px;">${fmtMoney(d.revenueThisMonth)}</div></div>
+        <div class="label">Revenue (${esc(periodLabel(period))})</div><div class="value" style="font-size:19px;">${fmtMoney(d.revenueThisMonth)}${trendBadgeHtml(trend.revenue)}</div></div>
+      <div class="stat-card"><div class="icon" style="background:rgba(57,135,229,.10);color:var(--s1)">${icon('wo')}</div>
+        <div class="label">Total Work Order (Sepanjang Waktu)</div><div class="value">${d.totalWO}</div></div>
     </div>
     <div class="grid2">
       <div class="panel">
@@ -1373,65 +1394,88 @@ async function formWorkOrder(){
   woCart = { parts:[], labors:[], sublets:[] };
   const custMap = {}; window.__customers.forEach(c=>custMap[c.CustomerID]=c);
   const vehicleChoices = window.__vehicles.map(v=>({...v, custName:(custMap[v.CustomerID]||{}).Nama||'', custHP:(custMap[v.CustomerID]||{}).NoHP||''}));
+  const actor = getActor();
   openDrawer(`
     <div class="drawer-head"><h3>Buat Work Order</h3><button class="drawer-close" onclick="closeDrawer()">&times;</button></div>
-    <div class="drawer-body">
-      <label>Cari Customer / No Polisi / No Rangka (VIN)</label>
-      ${comboSearchHtml('wo_veh_combo', 'Ketik nama, No HP, No Polisi, atau No Rangka...')}
-      <input type="hidden" id="wo_cust_id">
-      <p class="sub" style="margin:6px 0 14px;">Kendaraan belum terdaftar? Tambahkan dulu lewat menu Customer / Vehicle.</p>
-      <div class="grid3">
-        <div><label>Jenis WO</label><select id="wo_jenis"><option>General Repair</option><option>Body Repair</option></select></div>
-        <div><label>SA</label><input id="wo_sa"></div>
-        <div><label>KM</label><input id="wo_km" type="number"></div>
-      </div>
-      <label>Keluhan</label><textarea id="wo_keluhan"></textarea>
+    <div class="drawer-body wide-body">
+      <div class="wo-grid">
+        <div class="wo-col">
+          <label>Cari Customer / No Polisi / No Rangka (VIN)</label>
+          ${comboSearchHtml('wo_veh_combo', 'Ketik nama, No HP, No Polisi, atau No Rangka...')}
+          <input type="hidden" id="wo_cust_id">
+          <p class="sub" style="margin:6px 0 14px;">Kendaraan belum terdaftar? Tambahkan dulu lewat menu Customer / Vehicle.</p>
+          <div class="grid3">
+            <div><label>Jenis WO</label><select id="wo_jenis"><option>General Repair</option><option>Body Repair</option></select></div>
+            <div><label>SA</label><input id="wo_sa"></div>
+            <div><label>KM</label><input id="wo_km" type="number"></div>
+          </div>
+          <label>Keluhan</label><textarea id="wo_keluhan"></textarea>
 
-      <h3 style="font-size:13.5px;margin-bottom:8px;">Part (dari Part Master)</h3>
-      <div class="row-line">
-        <div style="flex:2">${comboSearchHtml('wo_part_combo','Cari No Part / Nama Part...')}</div>
-        <input id="wo_part_qty" type="number" value="1" style="width:64px">
-        <button class="btn secondary sm" onclick="addWOPart()">+ Add</button>
-      </div>
-      <div id="wo_part_list" class="chip-list"></div>
+          <div id="wo_items_section" class="wo-items-section locked">
+            <div class="wo-lock-hint" id="wo_lock_hint">🔒 Pilih dulu Customer / Kendaraan di atas sebelum mengisi Jasa, Part, dan Sublet.</div>
 
-      <h3 style="font-size:13.5px;margin-bottom:8px;">Labor (dari Labor Master)</h3>
-      <div class="row-line">
-        <div style="flex:2">${comboSearchHtml('wo_labor_combo','Cari Kode / Nama Jasa...')}</div>
-        <input id="wo_labor_qty" type="number" value="1" style="width:64px">
-        <button class="btn secondary sm" onclick="addWOLabor()">+ Add</button>
-      </div>
-      <div id="wo_labor_list" class="chip-list"></div>
+            <h3 style="font-size:13.5px;margin-bottom:8px;">Part (dari Part Master)</h3>
+            <div class="row-line">
+              <div style="flex:2">${comboSearchHtml('wo_part_combo','Cari No Part / Nama Part...')}</div>
+              <input id="wo_part_qty" type="number" value="1" style="width:60px" title="Qty">
+              <input id="wo_part_disc" type="number" value="0" step="0.01" class="item-disc-input" title="Diskon (mis. 0.1 = 10%)" placeholder="Disc%">
+              <button class="btn secondary sm" onclick="addWOPart()">+ Add</button>
+            </div>
+            <div id="wo_part_list" class="chip-list"></div>
 
-      <h3 style="font-size:13.5px;margin-bottom:2px;">Sublet (Pekerjaan Pihak Ketiga)</h3>
-      <p class="sub" style="margin:0 0 8px;">Masukkan dulu detail sublet (nama, qty, harga beli & harga jual), baru tambahkan ke item Work Order.</p>
-      <div class="grid3">
-        <div><label>Nama Sublet</label><input id="wo_sublet_name" placeholder="mis. Cuci Karpet, Spooring"></div>
-        <div><label>Qty</label><input id="wo_sublet_qty" type="number" value="1"></div>
-        <div><label>Harga Beli (Vendor)</label><input id="wo_sublet_hb" type="number" value="0"></div>
-      </div>
-      <div class="row-line">
-        <div style="flex:1"><label>Harga Jual (Customer)</label><input id="wo_sublet_hj" type="number" value="0"></div>
-        <button class="btn secondary sm" onclick="addWOSublet()">+ Tambah ke Item Sublet</button>
-      </div>
-      <div id="wo_sublet_list" class="chip-list"></div>
+            <h3 style="font-size:13.5px;margin-bottom:8px;">Labor (dari Labor Master)</h3>
+            <div class="row-line">
+              <div style="flex:2">${comboSearchHtml('wo_labor_combo','Cari Kode / Nama Jasa...')}</div>
+              <input id="wo_labor_qty" type="number" value="1" style="width:60px" title="Qty">
+              <input id="wo_labor_disc" type="number" value="0" step="0.01" class="item-disc-input" title="Diskon (mis. 0.1 = 10%)" placeholder="Disc%">
+              <button class="btn secondary sm" onclick="addWOLabor()">+ Add</button>
+            </div>
+            <div id="wo_labor_list" class="chip-list"></div>
 
-      <label>Diskon (Rp)</label><input id="wo_diskon" type="number" value="0" oninput="renderWOLists()">
-      <div class="panel" style="margin-top:10px;background:var(--surface-2);">
-        <div class="kv"><span>Subtotal</span><b id="wo_subtotal_preview">Rp 0</b></div>
-        <div class="kv"><span>Diskon</span><b id="wo_diskon_preview">Rp 0</b></div>
-        <div class="kv"><span>Estimasi Total</span><b id="wo_total_preview">Rp 0</b></div>
+            <h3 style="font-size:13.5px;margin-bottom:2px;">Sublet (Pekerjaan Pihak Ketiga)</h3>
+            <p class="sub" style="margin:0 0 8px;">Masukkan dulu detail sublet (nama, qty, harga beli & harga jual), baru tambahkan ke item Work Order.</p>
+            <div class="grid3">
+              <div><label>Nama Sublet</label><input id="wo_sublet_name" placeholder="mis. Cuci Karpet, Spooring"></div>
+              <div><label>Qty</label><input id="wo_sublet_qty" type="number" value="1"></div>
+              <div><label>Harga Beli (Vendor)</label><input id="wo_sublet_hb" type="number" value="0"></div>
+            </div>
+            <div class="row-line">
+              <div style="flex:1"><label>Harga Jual (Customer)</label><input id="wo_sublet_hj" type="number" value="0"></div>
+              <div style="width:70px"><label>Disc%</label><input id="wo_sublet_disc" type="number" value="0" step="0.01" placeholder="0.1"></div>
+              <button class="btn secondary sm" onclick="addWOSublet()">+ Tambah ke Item Sublet</button>
+            </div>
+            <div id="wo_sublet_list" class="chip-list"></div>
+          </div>
+        </div>
+        <div class="wo-col wo-col-right">
+          <h3 style="font-size:13.5px;margin-bottom:10px;">Ringkasan</h3>
+          <div class="panel" style="background:var(--surface);">
+            <div class="kv"><span>Subtotal (Kotor)</span><b id="wo_subtotal_preview">Rp 0</b></div>
+            <div class="kv"><span>Total Diskon</span><b id="wo_diskon_preview">Rp 0</b></div>
+            <div class="kv"><span>Estimasi Total</span><b id="wo_total_preview">Rp 0</b></div>
+          </div>
+          <p class="sub" style="margin:8px 0 2px;">Rasio Diskon: <b id="wo_diskon_ratio_text">0%</b></p>
+          <div class="disc-ratio-bar" id="wo_diskon_ratio_bar"><div style="width:0%"></div></div>
+          <div id="wo_diskon_warning"></div>
+          <p class="sub" style="margin-top:14px;">Ketik diskon per item dalam bentuk desimal, mis. <b>0,1</b> untuk 10%. Jika total diskon melebihi 10% dari subtotal, Work Order wajib dibuat/disetujui oleh akun <b>Manager</b>.</p>
+        </div>
       </div>
     </div>
     <div class="drawer-foot"><button class="btn secondary" onclick="closeDrawer()">Batal</button>
-    <button class="btn" onclick="submitWorkOrder()">Simpan Work Order</button></div>
-  `);
+    <button class="btn" id="wo_submit_btn" onclick="submitWorkOrder()">Simpan Work Order</button></div>
+  `, true);
   attachComboSearch('wo_veh_combo', vehicleChoices, {
     getLabel:v=>`${v.NoPolisi} — ${v.custName||'(tanpa nama)'}`,
     getSub:v=>`${v.Brand||''} ${v.Model||''} · Rangka: ${v.NoRangka||'-'}${v.custHP?' · '+v.custHP:''}`,
     getValue:v=>v.VehicleID,
     searchText:v=>[v.NoPolisi,v.NoRangka,v.NoMesin,v.custName,v.custHP].join(' '),
-    onSelect:v=>{ document.getElementById('wo_cust_id').value = v.CustomerID; }
+    onSelect:v=>{
+      document.getElementById('wo_cust_id').value = v.CustomerID;
+      const sec = document.getElementById('wo_items_section');
+      if(sec) sec.classList.remove('locked');
+      const hint = document.getElementById('wo_lock_hint');
+      if(hint) hint.style.display = 'none';
+    }
   });
   attachComboSearch('wo_part_combo', window.__parts, {
     getLabel:p=>`${p.PartNumber} - ${p.PartName}`,
@@ -1451,23 +1495,27 @@ function addWOPart(){
   const pn = val('wo_part_combo');
   if(!pn){ toast('Pilih part terlebih dahulu dari hasil pencarian', true); return; }
   const qty = Number(val('wo_part_qty'))||1;
+  const disc = Math.min(1, Math.max(0, Number(val('wo_part_disc'))||0));
   const part = window.__parts.find(p=>p.PartNumber===pn);
   if(!part) return;
   if(Number(part.StokAkhir)<=0){ toast('Stok part "'+part.PartName+'" habis, tidak bisa ditambahkan', true); return; }
-  woCart.parts.push({PartNumber:pn, PartName:part.PartName, Qty:qty, Harga:part.HargaJual});
+  woCart.parts.push({PartNumber:pn, PartName:part.PartName, Qty:qty, Harga:part.HargaJual, DiskonPersen:disc});
   renderWOLists();
   setFieldValue('wo_part_combo',''); const inp=document.getElementById('wo_part_combo_input'); if(inp) inp.value='';
+  setFieldValue('wo_part_disc',0);
 }
 function removeWOPart(i){ woCart.parts.splice(i,1); renderWOLists(); }
 function addWOLabor(){
   const lc = val('wo_labor_combo');
   if(!lc){ toast('Pilih jasa terlebih dahulu dari hasil pencarian', true); return; }
   const qty = Number(val('wo_labor_qty'))||1;
+  const disc = Math.min(1, Math.max(0, Number(val('wo_labor_disc'))||0));
   const labor = window.__labors.find(l=>l.LaborCode===lc);
   if(!labor) return;
-  woCart.labors.push({LaborCode:lc, LaborName:labor.LaborName, Qty:qty, Harga:labor.Harga});
+  woCart.labors.push({LaborCode:lc, LaborName:labor.LaborName, Qty:qty, Harga:labor.Harga, DiskonPersen:disc});
   renderWOLists();
   setFieldValue('wo_labor_combo',''); const inp=document.getElementById('wo_labor_combo_input'); if(inp) inp.value='';
+  setFieldValue('wo_labor_disc',0);
 }
 function removeWOLabor(i){ woCart.labors.splice(i,1); renderWOLists(); }
 function addWOSublet(){
@@ -1475,31 +1523,63 @@ function addWOSublet(){
   const qty = Number(val('wo_sublet_qty'))||0;
   const hb = Number(val('wo_sublet_hb'))||0;
   const hj = Number(val('wo_sublet_hj'))||0;
+  const disc = Math.min(1, Math.max(0, Number(val('wo_sublet_disc'))||0));
   if(!name || qty<=0){ toast('Isi nama sublet dan qty terlebih dahulu', true); return; }
-  woCart.sublets.push({SubletName:name, Qty:qty, HargaBeli:hb, HargaJual:hj});
+  woCart.sublets.push({SubletName:name, Qty:qty, HargaBeli:hb, HargaJual:hj, DiskonPersen:disc});
   renderWOLists();
-  setFieldValue('wo_sublet_name',''); setFieldValue('wo_sublet_qty',1); setFieldValue('wo_sublet_hb',0); setFieldValue('wo_sublet_hj',0);
+  setFieldValue('wo_sublet_name',''); setFieldValue('wo_sublet_qty',1); setFieldValue('wo_sublet_hb',0); setFieldValue('wo_sublet_hj',0); setFieldValue('wo_sublet_disc',0);
 }
 function removeWOSublet(i){ woCart.sublets.splice(i,1); renderWOLists(); }
+function woItemChipLabel(name, qty, gross, discPersen){
+  const discBadge = discPersen>0 ? ` <span style="color:#fcd374;">(-${(discPersen*100).toFixed(discPersen*100%1===0?0:1)}%)</span>` : '';
+  return `${esc(name)} ×${qty} — ${fmtMoneyFull(gross*(1-discPersen))}${discBadge}`;
+}
 function renderWOLists(){
-  document.getElementById('wo_part_list').innerHTML = woCart.parts.map((p,i)=>`<div class="chip">${esc(p.PartName)} ×${p.Qty} — ${fmtMoneyFull(p.Harga*p.Qty)}<button onclick="removeWOPart(${i})">&times;</button></div>`).join('') || '<span class="muted" style="font-size:12px;">Belum ada part.</span>';
-  document.getElementById('wo_labor_list').innerHTML = woCart.labors.map((l,i)=>`<div class="chip">${esc(l.LaborName)} ×${l.Qty} — ${fmtMoneyFull(l.Harga*l.Qty)}<button onclick="removeWOLabor(${i})">&times;</button></div>`).join('') || '<span class="muted" style="font-size:12px;">Belum ada jasa.</span>';
+  document.getElementById('wo_part_list').innerHTML = woCart.parts.map((p,i)=>`<div class="chip">${woItemChipLabel(p.PartName,p.Qty,p.Harga*p.Qty,p.DiskonPersen||0)}<button onclick="removeWOPart(${i})">&times;</button></div>`).join('') || '<span class="muted" style="font-size:12px;">Belum ada part.</span>';
+  document.getElementById('wo_labor_list').innerHTML = woCart.labors.map((l,i)=>`<div class="chip">${woItemChipLabel(l.LaborName,l.Qty,l.Harga*l.Qty,l.DiskonPersen||0)}<button onclick="removeWOLabor(${i})">&times;</button></div>`).join('') || '<span class="muted" style="font-size:12px;">Belum ada jasa.</span>';
   const subletListEl = document.getElementById('wo_sublet_list');
-  if(subletListEl) subletListEl.innerHTML = woCart.sublets.map((s,i)=>`<div class="chip">${esc(s.SubletName)} ×${s.Qty} — ${fmtMoneyFull(s.HargaJual*s.Qty)}<button onclick="removeWOSublet(${i})">&times;</button></div>`).join('') || '<span class="muted" style="font-size:12px;">Belum ada sublet.</span>';
-  const subtotal = woCart.parts.reduce((s,p)=>s+p.Harga*p.Qty,0) + woCart.labors.reduce((s,l)=>s+l.Harga*l.Qty,0) + woCart.sublets.reduce((s,x)=>s+x.HargaJual*x.Qty,0);
-  const diskonEl = document.getElementById('wo_diskon');
-  const diskon = diskonEl ? (Number(diskonEl.value)||0) : 0;
-  const total = Math.max(0, subtotal - diskon);
+  if(subletListEl) subletListEl.innerHTML = woCart.sublets.map((s,i)=>`<div class="chip">${woItemChipLabel(s.SubletName,s.Qty,s.HargaJual*s.Qty,s.DiskonPersen||0)}<button onclick="removeWOSublet(${i})">&times;</button></div>`).join('') || '<span class="muted" style="font-size:12px;">Belum ada sublet.</span>';
+
+  const grossOf = arr => arr.reduce((s,x)=>s+(x.Harga!==undefined?x.Harga:x.HargaJual)*x.Qty,0);
+  const discOf = arr => arr.reduce((s,x)=>s+((x.Harga!==undefined?x.Harga:x.HargaJual)*x.Qty)*(x.DiskonPersen||0),0);
+  const subtotal = grossOf(woCart.parts) + grossOf(woCart.labors) + grossOf(woCart.sublets);
+  const totalDiskon = discOf(woCart.parts) + discOf(woCart.labors) + discOf(woCart.sublets);
+  const total = Math.max(0, subtotal - totalDiskon);
+  const ratio = subtotal>0 ? (totalDiskon/subtotal) : 0;
+
   const subtotalEl = document.getElementById('wo_subtotal_preview'); if(subtotalEl) subtotalEl.textContent = fmtMoneyFull(subtotal);
-  const diskonPreviewEl = document.getElementById('wo_diskon_preview'); if(diskonPreviewEl) diskonPreviewEl.textContent = fmtMoneyFull(diskon);
+  const diskonPreviewEl = document.getElementById('wo_diskon_preview'); if(diskonPreviewEl) diskonPreviewEl.textContent = fmtMoneyFull(totalDiskon);
   const totalEl = document.getElementById('wo_total_preview'); if(totalEl) totalEl.textContent = fmtMoneyFull(total);
+  const ratioTextEl = document.getElementById('wo_diskon_ratio_text'); if(ratioTextEl) ratioTextEl.textContent = (ratio*100).toFixed(1)+'%';
+  const ratioBarEl = document.getElementById('wo_diskon_ratio_bar');
+  if(ratioBarEl){
+    ratioBarEl.classList.toggle('over', ratio>0.1);
+    const barInner = ratioBarEl.querySelector('div'); if(barInner) barInner.style.width = Math.min(100, ratio*100)+'%';
+  }
+  const actor = getActor();
+  const overLimit = ratio > 0.1;
+  const needsManager = overLimit && actor.role !== 'Manager';
+  const warnEl = document.getElementById('wo_diskon_warning');
+  if(warnEl) warnEl.innerHTML = needsManager
+    ? `<div class="danger-box" style="margin-top:8px;">Diskon melebihi 10% dari subtotal. Tombol Simpan dinonaktifkan — minta akun <b>Manager</b> untuk membuat/menyetujui Work Order ini.</div>`
+    : (overLimit ? `<div class="warn-box" style="margin-top:8px;">Diskon melebihi 10%, disetujui oleh akun Manager (${esc(actor.name)}).</div>` : '');
+  const submitBtn = document.getElementById('wo_submit_btn');
+  if(submitBtn) submitBtn.disabled = needsManager;
 }
 async function submitWorkOrder(){
   const custId = val('wo_cust_id'); const vehId = val('wo_veh_combo');
   if(!custId || !vehId){ toast('Pilih Customer / Kendaraan terlebih dahulu lewat kotak pencarian', true); return; }
+  const grossOf = arr => arr.reduce((s,x)=>s+(x.Harga!==undefined?x.Harga:x.HargaJual)*x.Qty,0);
+  const discOf = arr => arr.reduce((s,x)=>s+((x.Harga!==undefined?x.Harga:x.HargaJual)*x.Qty)*(x.DiskonPersen||0),0);
+  const subtotal = grossOf(woCart.parts) + grossOf(woCart.labors) + grossOf(woCart.sublets);
+  const totalDiskon = discOf(woCart.parts) + discOf(woCart.labors) + discOf(woCart.sublets);
+  const ratio = subtotal>0 ? (totalDiskon/subtotal) : 0;
+  const actor = getActor();
+  if(ratio > 0.1 && actor.role !== 'Manager'){ toast('Diskon melebihi 10%, wajib disetujui oleh akun Manager', true); return; }
   const payload = {
     CustomerID: custId, VehicleID: vehId, JenisWO: val('wo_jenis'),
-    SA: val('wo_sa'), KM: val('wo_km'), Keluhan: val('wo_keluhan'), Diskon: val('wo_diskon'),
+    SA: val('wo_sa'), KM: val('wo_km'), Keluhan: val('wo_keluhan'), Diskon: totalDiskon,
+    ActorRole: actor.role, ActorName: actor.name,
     parts: woCart.parts.map(p=>({PartNumber:p.PartNumber, Qty:p.Qty})),
     labors: woCart.labors.map(l=>({LaborCode:l.LaborCode, Qty:l.Qty})),
     sublets: woCart.sublets.map(s=>({SubletName:s.SubletName, Qty:s.Qty, HargaBeli:s.HargaBeli, HargaJual:s.HargaJual}))
@@ -1764,6 +1844,31 @@ async function renderWOStage(status){
     })}</div>
   `);
   initTable(tblId);
+}
+
+/* ================= PERIOD PRESET + TREND HELPER (dipakai di Dashboard & Laporan) ================= */
+const PERIOD_OPTIONS = [
+  {key:'today', label:'Hari Ini'},
+  {key:'yesterday', label:'Kemarin'},
+  {key:'this_week', label:'Minggu Ini'},
+  {key:'this_month', label:'Bulan Ini'},
+  {key:'last_month', label:'Bulan Lalu'},
+  {key:'this_year', label:'Tahun Ini'},
+  {key:'last_year', label:'Tahun Lalu'}
+];
+function periodSelectorHtml(id, selected, onchange){
+  selected = selected || 'this_month';
+  const changeAttr = onchange ? ` onchange="${onchange}"` : '';
+  return `<select id="${esc(id)}"${changeAttr}>${PERIOD_OPTIONS.map(o=>`<option value="${o.key}" ${o.key===selected?'selected':''}>${esc(o.label)}</option>`).join('')}</select>`;
+}
+function periodLabel(key){ const o = PERIOD_OPTIONS.find(x=>x.key===key); return o ? o.label : key; }
+function trendBadgeHtml(trend){
+  if(!trend || trend.pct===null || trend.pct===undefined || !isFinite(trend.pct)) return '';
+  const up = trend.delta>=0;
+  const pct = Math.abs(trend.pct).toFixed(1);
+  const color = up ? '#5fd07a' : '#f28080';
+  const arrow = up ? '▲' : '▼';
+  return ` <span style="color:${color};font-size:11.5px;font-weight:700;">${arrow} ${pct}%</span>`;
 }
 
 // Export Excel (CSV) untuk Vehicle Delivery: satu baris per item (Part/Labor/Sublet) per WO,
@@ -2521,13 +2626,16 @@ async function renderPartLoss(){
 async function renderRevenueGPReport(){
   setMain(skeletonRows(4));
   setMain(`
-    <div class="page-head"><div><h2>Revenue vs Gross Profit</h2><p>Revenue = Total WO setelah diskon. GP = Revenue - estimasi COGS (Part x Cost Price + Sublet x Harga Beli). Labor dianggap tanpa COGS.</p></div></div>
+    <div class="page-head"><div><h2>Revenue vs Gross Profit</h2><p>Revenue = Total WO setelah diskon. GP = Revenue - estimasi COGS (Part x Cost Price + Sublet x Harga Beli). Labor dianggap tanpa COGS.</p></div>
+      <button class="btn secondary sm" onclick="exportRevenueGPExcel()">⬇ Export Excel</button>
+    </div>
     <div class="panel" style="margin-bottom:12px;">
       <div class="row-line" style="flex-wrap:wrap;gap:10px;align-items:flex-end;">
-        <div><label style="font-size:11px;display:block;">Dari Tanggal</label><input type="date" id="rgp_from" style="width:150px;"></div>
+        <div><label style="font-size:11px;display:block;">Periode</label>${periodSelectorHtml('rgp_period','this_month')}</div>
+        <div><label style="font-size:11px;display:block;">atau Dari Tanggal</label><input type="date" id="rgp_from" style="width:150px;"></div>
         <div><label style="font-size:11px;display:block;">Ke Tanggal</label><input type="date" id="rgp_to" style="width:150px;"></div>
         <button class="btn secondary sm" onclick="loadRevenueGPReport()">Terapkan Filter</button>
-        <button class="btn ghost sm" onclick="setFieldValue('rgp_from','');setFieldValue('rgp_to','');loadRevenueGPReport();">Reset</button>
+        <button class="btn ghost sm" onclick="setFieldValue('rgp_from','');setFieldValue('rgp_to','');setFieldValue('rgp_period','this_month');loadRevenueGPReport();">Reset</button>
       </div>
     </div>
     <div id="rgp_result"></div>
@@ -2537,9 +2645,12 @@ async function renderRevenueGPReport(){
 async function loadRevenueGPReport(){
   const el = document.getElementById('rgp_result');
   el.innerHTML = skeletonRows(3);
-  const res = await apiGet('getRevenueGPReport', {from: val('rgp_from'), to: val('rgp_to')});
+  const from = val('rgp_from'), to = val('rgp_to');
+  const params = (from || to) ? {from, to} : {period: val('rgp_period')||'this_month'};
+  const res = await apiGet('getRevenueGPReport', params);
   if(!res.success){ el.innerHTML = `<div class="panel">${emptyState(res.message)}</div>`; return; }
-  const {rows, monthly, totals} = res.data;
+  const {rows, monthly, totals, trend} = res.data;
+  window.__rgp_rows = rows;
   const barItems = [];
   monthly.forEach(m=>{
     barItems.push({label: m.month+' - Revenue', value: Math.round(m.revenue), colorVar:'s1'});
@@ -2547,9 +2658,9 @@ async function loadRevenueGPReport(){
   });
   el.innerHTML = `
     <div class="cards">
-      <div class="stat-card"><div class="label">Total Revenue</div><div class="value">${fmtMoney(totals.revenue)}</div></div>
-      <div class="stat-card"><div class="label">Estimasi COGS</div><div class="value">${fmtMoney(totals.cogs)}</div></div>
-      <div class="stat-card"><div class="label">Gross Profit</div><div class="value">${fmtMoney(totals.gp)}</div></div>
+      <div class="stat-card"><div class="label">Total Revenue</div><div class="value">${fmtMoney(totals.revenue)}${trend?trendBadgeHtml(trend.revenue):''}</div></div>
+      <div class="stat-card"><div class="label">Estimasi COGS</div><div class="value">${fmtMoney(totals.cogs)}${trend?trendBadgeHtml(trend.cogs):''}</div></div>
+      <div class="stat-card"><div class="label">Gross Profit</div><div class="value">${fmtMoney(totals.gp)}${trend?trendBadgeHtml(trend.gp):''}</div></div>
       <div class="stat-card"><div class="label">GP Margin</div><div class="value">${totals.margin.toFixed(1)}%</div></div>
     </div>
     ${barItems.length>0?`<div class="panel"><h3 style="font-size:13.5px;">Revenue vs GP per Bulan</h3><div id="rgp_bar"></div></div>`:''}
@@ -2568,6 +2679,26 @@ async function loadRevenueGPReport(){
     attachBarTooltip(barEl, barItems.map(it=>({label:it.label, value:fmtMoneyFull(it.value)})));
   }
 }
+function exportRevenueGPExcel(){
+  const rows = window.__rgp_rows||[];
+  if(rows.length===0){ toast('Belum ada data untuk di-export.', true); return; }
+  const headers = ['No WO','Tgl Invoice','Customer','Revenue','COGS','GP','Margin (%)'];
+  const csvRows = [headers.join(',')];
+  rows.forEach(r=>{
+    csvRows.push([r.WOID, fmtDate(r.TglInvoice), r.NamaCustomer, r.Revenue, r.COGS, r.GP, r.Margin.toFixed(1)].map(csvEscape).join(','));
+  });
+  downloadCsv(csvRows, 'Revenue_vs_GP_Report_'+Utilities_todayStr()+'.csv');
+  toast(rows.length+' baris data berhasil di-export.');
+}
+function downloadCsv(csvRows, filename){
+  const csvContent = '﻿' + csvRows.join('\r\n');
+  const blob = new Blob([csvContent], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 
 /* ================= LAPORAN: UNIT ENTRY (VIN UNIK PER HARI) ================= */
 // Kendaraan (No Rangka/VIN) yang sama, masuk WO di hari yang SAMA, hanya dihitung SATU kali sebagai
@@ -2575,13 +2706,16 @@ async function loadRevenueGPReport(){
 async function renderUnitEntryReport(){
   setMain(skeletonRows(4));
   setMain(`
-    <div class="page-head"><div><h2>Unit Entry (VIN Unik per Hari)</h2><p>Kendaraan dengan No Rangka (VIN) sama yang masuk di hari yang sama dihitung sebagai SATU Unit Entry.</p></div></div>
+    <div class="page-head"><div><h2>Unit Entry (VIN Unik per Hari)</h2><p>Kendaraan dengan No Rangka (VIN) sama yang masuk di hari yang sama dihitung sebagai SATU Unit Entry.</p></div>
+      <button class="btn secondary sm" onclick="exportUnitEntryExcel()">⬇ Export Excel</button>
+    </div>
     <div class="panel" style="margin-bottom:12px;">
       <div class="row-line" style="flex-wrap:wrap;gap:10px;align-items:flex-end;">
-        <div><label style="font-size:11px;display:block;">Dari Tanggal</label><input type="date" id="ue_from" style="width:150px;"></div>
+        <div><label style="font-size:11px;display:block;">Periode</label>${periodSelectorHtml('ue_period','this_month')}</div>
+        <div><label style="font-size:11px;display:block;">atau Dari Tanggal</label><input type="date" id="ue_from" style="width:150px;"></div>
         <div><label style="font-size:11px;display:block;">Ke Tanggal</label><input type="date" id="ue_to" style="width:150px;"></div>
         <button class="btn secondary sm" onclick="loadUnitEntryReport()">Terapkan Filter</button>
-        <button class="btn ghost sm" onclick="setFieldValue('ue_from','');setFieldValue('ue_to','');loadUnitEntryReport();">Reset</button>
+        <button class="btn ghost sm" onclick="setFieldValue('ue_from','');setFieldValue('ue_to','');setFieldValue('ue_period','this_month');loadUnitEntryReport();">Reset</button>
       </div>
     </div>
     <div id="ue_result"></div>
@@ -2591,12 +2725,15 @@ async function renderUnitEntryReport(){
 async function loadUnitEntryReport(){
   const el = document.getElementById('ue_result');
   el.innerHTML = skeletonRows(3);
-  const res = await apiGet('getUnitEntryReport', {from: val('ue_from'), to: val('ue_to')});
+  const from = val('ue_from'), to = val('ue_to');
+  const params = (from || to) ? {from, to} : {period: val('ue_period')||'this_month'};
+  const res = await apiGet('getUnitEntryReport', params);
   if(!res.success){ el.innerHTML = `<div class="panel">${emptyState(res.message)}</div>`; return; }
-  const {uniqueEntries, monthly, totalUniqueEntries, totalWOTercatat, totalDuplikatHariSama} = res.data;
+  const {uniqueEntries, monthly, totalUniqueEntries, totalWOTercatat, totalDuplikatHariSama, trend} = res.data;
+  window.__ue_rows = uniqueEntries;
   el.innerHTML = `
     <div class="cards">
-      <div class="stat-card"><div class="label">Total Unit Entry (Unik)</div><div class="value">${totalUniqueEntries}</div></div>
+      <div class="stat-card"><div class="label">Total Unit Entry (Unik)</div><div class="value">${totalUniqueEntries}${trend?trendBadgeHtml(trend.uniqueEntries):''}</div></div>
       <div class="stat-card"><div class="label">Total WO Tercatat</div><div class="value">${totalWOTercatat}</div></div>
       <div class="stat-card"><div class="label">Tidak Dihitung Ganda</div><div class="value">${totalDuplikatHariSama}</div></div>
     </div>
@@ -2621,6 +2758,17 @@ async function loadUnitEntryReport(){
     attachLineChart(lineEl, lc);
     attachLineTooltip(lineEl, lc.pts);
   }
+}
+function exportUnitEntryExcel(){
+  const rows = window.__ue_rows||[];
+  if(rows.length===0){ toast('Belum ada data untuk di-export.', true); return; }
+  const headers = ['Tgl Masuk','No Polisi','No Rangka (VIN)','Customer','Jumlah WO','Daftar No WO'];
+  const csvRows = [headers.join(',')];
+  rows.forEach(r=>{
+    csvRows.push([fmtDate(r.TglMasuk), r.NoPolisi, r.VIN, r.NamaCustomer, r.WOIDs.length, r.WOIDs.join('; ')].map(csvEscape).join(','));
+  });
+  downloadCsv(csvRows, 'Unit_Entry_Report_'+Utilities_todayStr()+'.csv');
+  toast(rows.length+' baris data berhasil di-export.');
 }
 
 /* ================= GLOBAL SEARCH (shortcut ke Kartu Stok / WO / PO) ================= */
