@@ -103,6 +103,9 @@ body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;backgrou
 .btn:disabled{opacity:.4;cursor:not-allowed;transform:none;}
 .btn.secondary{background:var(--surface-2);border:1px solid var(--border-strong);}
 .btn.good{background:linear-gradient(135deg,#0ca30c,#0a8a0a);}
+.btn.accent{background:linear-gradient(135deg,#0a8f0a,#0c7a3f);color:#fff;}
+.btn.outline{background:var(--surface);border:1.5px solid var(--brand);color:var(--brand);}
+.btn.outline:hover{background:rgba(47,111,214,.08);}
 .btn.critical{background:linear-gradient(135deg,#d03b3b,#a92e2e);}
 .btn.sm{padding:6px 11px;font-size:12px;border-radius:8px;}
 .btn.ghost{background:transparent;border:1px solid var(--border-strong);color:var(--ink-2);}
@@ -624,7 +627,7 @@ function filterBarHtml(tableId, extra, dateField, handlers){
         <div><label style="font-size:11px;display:block;">Ke Tanggal</label><input type="date" id="flt_${tableId}_to" style="width:150px;"></div>
         ${extra.map(f=>`<div><label style="font-size:11px;display:block;">${esc(f.label)}</label>
           <select id="flt_${tableId}_${f.key}" style="min-width:130px;"><option value="">Semua</option>${f.options.map(o=>`<option value="${esc(o)}">${esc(o)}</option>`).join('')}</select></div>`).join('')}
-        <button class="btn secondary sm" onclick="${applyFn}">Terapkan Filter</button>
+        <button class="btn outline sm" onclick="${applyFn}">Terapkan Filter</button>
         <button class="btn ghost sm" onclick="${resetFn}">Reset</button>
       </div>
     </div>
@@ -1322,8 +1325,6 @@ function formPart(p){
         '<div><label>Kategori</label><input id="f_kat"></div>',
         '<div><label>Satuan</label><input id="f_satuan"></div>',
         '<div><label>Lokasi Rak</label><input id="f_lokasi"></div>',
-        '<div><label>Dealer Code</label><input id="f_dealercode"></div>',
-        '<div><label>Dealer Name</label><input id="f_dealername"></div>',
         '<div><label>Status</label><select id="f_status"><option value="Active">Active</option><option value="Inactive">Inactive</option></select></div>',
         '<div><label>Locked</label><select id="f_locked"><option value="false">Tidak</option><option value="true">Ya</option></select></div>',
         '<div><label>Harga Beli</label><input id="f_hbeli" type="number"></div>',
@@ -1345,8 +1346,6 @@ function formPart(p){
   setFieldValue('f_kat', p.Kategori||'');
   setFieldValue('f_satuan', p.Satuan||'PCS');
   setFieldValue('f_lokasi', p.Lokasi||'');
-  setFieldValue('f_dealercode', p.DealerCode||'');
-  setFieldValue('f_dealername', p.DealerName||'');
   setFieldValue('f_status', p.Status||'Active');
   setFieldValue('f_locked', p.Locked===true?'true':'false');
   setFieldValue('f_hbeli', Number(p.HargaBeli||0));
@@ -1363,7 +1362,7 @@ async function savePart(){
   if(actor.role!=='Super Admin'){ toast('Hanya akun Super Admin yang boleh menambah/mengubah Part Master', true); return; }
   const payload = { PartNumber:val('f_pn'), PartName:val('f_pname'), Kategori:val('f_kat'), Satuan:val('f_satuan'),
     HargaBeli:val('f_hbeli'), HargaJual:val('f_hjual'), StokMinimum:val('f_stokmin'), StokAwal:val('f_stokawal'), Lokasi:val('f_lokasi'),
-    DealerCode:val('f_dealercode'), DealerName:val('f_dealername'), Status:val('f_status'), Locked: val('f_locked')==='true',
+    Status:val('f_status'), Locked: val('f_locked')==='true',
     SuggestPrice:val('f_suggestprice'), ClaimPrice:val('f_claimprice'), ActorRole:actor.role, ActorName:actor.name };
   const res = await apiPost('savePart', payload);
   if(res.success){ toast('Part tersimpan'); closeDrawer(); renderPartMaster(); } else toast(res.message,true);
@@ -1380,15 +1379,12 @@ async function renderInventoryMaster(){
     <div class="page-head"><div><h2>Inventory Master</h2><p>Daftar lengkap stok, harga, dan pergerakan terakhir tiap part (${data.length} part)</p></div></div>
     ${!canEdit ? `<div class="warn-box" style="margin-bottom:12px;">Inventory Master hanya bisa diubah oleh akun <b>Super Admin</b>. Anda login sebagai <b>${esc(actor.role)}</b> - tampilan di bawah hanya untuk dilihat (read-only).</div>` : ''}
     ${filterBarHtml('invmaster', [
-      {key:'Status', label:'Status', options:['Active','Inactive']},
-      {key:'DealerName', label:'Dealer', options:[...new Set(data.map(p=>p.DealerName).filter(Boolean))]}
+      {key:'Status', label:'Status', options:['Active','Inactive']}
     ], 'UpdatedAt')}
     <div class="panel">${dataTable({
-      id:'invmaster', rows:data, searchKeys:['PartNumber','PartName','DealerCode','DealerName'],
+      id:'invmaster', rows:data, searchKeys:['PartNumber','PartName'],
       columns:[
         {key:'PartNumber', label:'Parts No.'}, {key:'PartName', label:'Parts Name'},
-        {key:'DealerCode', label:'Dealer Code', render:p=>esc(p.DealerCode||'-')},
-        {key:'DealerName', label:'Dealer Name', render:p=>esc(p.DealerName||'-')},
         {key:'Status', label:'Status', render:p=>statusBadge(p.Status||'Active', {Active:'good', Inactive:'muted'})},
         {key:'StokAkhir', label:'Qty.', numeric:true},
         {key:'Locked', label:'Locked', render:p=>p.Locked===true?'🔒 Ya':'-'},
@@ -1850,18 +1846,18 @@ async function formWorkOrder(){
               <div style="flex:2"><label style="font-size:11px;">Cari Part</label>${comboSearchHtml('wo_part_combo','Cari No Part / Nama Part...')}</div>
               <div style="width:60px"><label style="font-size:11px;">Qty</label><input id="wo_part_qty" type="number" value="1"></div>
               <div style="width:70px"><label style="font-size:11px;">Diskon</label><input id="wo_part_disc" type="number" value="0" step="0.01" class="item-disc-input" title="Diskon (mis. 0.1 = 10%)" placeholder="0.1"></div>
-              <button class="btn secondary sm" onclick="addWOPart()">+ Add</button>
+              <button class="btn accent sm" onclick="addWOPart()">+ Add</button>
             </div>
-            <div id="wo_part_list" class="chip-list"></div>
+            <div id="wo_part_list"></div>
 
             <h3 style="font-size:13.5px;margin-bottom:8px;">Labor (dari Labor Master)</h3>
             <div class="row-line">
               <div style="flex:2"><label style="font-size:11px;">Cari Jasa</label>${comboSearchHtml('wo_labor_combo','Cari Kode / Nama Jasa...')}</div>
               <div style="width:60px"><label style="font-size:11px;">Qty</label><input id="wo_labor_qty" type="number" value="1"></div>
               <div style="width:70px"><label style="font-size:11px;">Diskon</label><input id="wo_labor_disc" type="number" value="0" step="0.01" class="item-disc-input" title="Diskon (mis. 0.1 = 10%)" placeholder="0.1"></div>
-              <button class="btn secondary sm" onclick="addWOLabor()">+ Add</button>
+              <button class="btn accent sm" onclick="addWOLabor()">+ Add</button>
             </div>
-            <div id="wo_labor_list" class="chip-list"></div>
+            <div id="wo_labor_list"></div>
 
             <h3 style="font-size:13.5px;margin-bottom:2px;">Sublet (Pekerjaan Pihak Ketiga)</h3>
             <p class="sub" style="margin:0 0 8px;">Cari dulu apakah sublet ini sudah pernah dipakai sebelumnya (harga otomatis terisi) - baru ketik nama baru kalau memang belum ada, supaya tidak dobel.</p>
@@ -1873,9 +1869,9 @@ async function formWorkOrder(){
             <div class="row-line">
               <div style="flex:1"><label>Harga Jual (Customer)</label><input id="wo_sublet_hj" type="number" value="0"></div>
               <div style="width:70px"><label>Disc%</label><input id="wo_sublet_disc" type="number" value="0" step="0.01" placeholder="0.1"></div>
-              <button class="btn secondary sm" onclick="addWOSublet()">+ Tambah ke Item Sublet</button>
+              <button class="btn accent sm" onclick="addWOSublet()">+ Tambah ke Item Sublet</button>
             </div>
-            <div id="wo_sublet_list" class="chip-list"></div>
+            <div id="wo_sublet_list"></div>
           </div>
         </div>
         <div class="wo-col wo-col-right">
@@ -1978,15 +1974,35 @@ function addWOSublet(){
   setFieldValue('wo_sublet_qty',1); setFieldValue('wo_sublet_hb',0); setFieldValue('wo_sublet_hj',0); setFieldValue('wo_sublet_disc',0);
 }
 function removeWOSublet(i){ woCart.sublets.splice(i,1); renderWOLists(); }
-function woItemChipLabel(name, qty, gross, discPersen){
-  const discBadge = discPersen>0 ? ` <span style="color:#8a5f00;">(-${(discPersen*100).toFixed(discPersen*100%1===0?0:1)}%)</span>` : '';
-  return `${esc(name)} ×${qty} — ${fmtMoneyFull(gross*(1-discPersen))}${discBadge}`;
+// Tabel ringkas untuk daftar item WO (Part/Labor/Sublet) yang sudah ditambahkan ke keranjang -
+// lebih rapi & mudah dibandingkan dibanding bentuk chip/pill sebelumnya.
+function woItemsTableHtml(items, nameKey, priceKey, removeFnName, emptyLabel){
+  if(!items.length) return `<span class="muted" style="font-size:12px;">${emptyLabel}</span>`;
+  return `<div style="border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:12px;">
+    <table style="margin:0;"><thead><tr><th>Nama</th><th>Qty</th><th>Harga Satuan</th><th>Diskon</th><th>Subtotal</th><th></th></tr></thead><tbody>
+    ${items.map((it,i)=>{
+      const harga = it[priceKey]||0;
+      const disc = it.DiskonPersen||0;
+      const gross = harga*it.Qty;
+      const net = gross*(1-disc);
+      const discText = disc>0 ? (disc*100).toFixed(disc*100%1===0?0:1)+'%' : '-';
+      return `<tr>
+        <td>${esc(it[nameKey])}</td>
+        <td class="num">${it.Qty}</td>
+        <td class="num">${fmtMoneyFull(harga)}</td>
+        <td class="num">${discText}</td>
+        <td class="num"><b>${fmtMoneyFull(net)}</b></td>
+        <td><button class="btn ghost sm" onclick="${removeFnName}(${i})" title="Hapus">&times;</button></td>
+      </tr>`;
+    }).join('')}
+    </tbody></table>
+  </div>`;
 }
 function renderWOLists(){
-  document.getElementById('wo_part_list').innerHTML = woCart.parts.map((p,i)=>`<div class="chip">${woItemChipLabel(p.PartName,p.Qty,p.Harga*p.Qty,p.DiskonPersen||0)}<button onclick="removeWOPart(${i})">&times;</button></div>`).join('') || '<span class="muted" style="font-size:12px;">Belum ada part.</span>';
-  document.getElementById('wo_labor_list').innerHTML = woCart.labors.map((l,i)=>`<div class="chip">${woItemChipLabel(l.LaborName,l.Qty,l.Harga*l.Qty,l.DiskonPersen||0)}<button onclick="removeWOLabor(${i})">&times;</button></div>`).join('') || '<span class="muted" style="font-size:12px;">Belum ada jasa.</span>';
+  document.getElementById('wo_part_list').innerHTML = woItemsTableHtml(woCart.parts, 'PartName', 'Harga', 'removeWOPart', 'Belum ada part.');
+  document.getElementById('wo_labor_list').innerHTML = woItemsTableHtml(woCart.labors, 'LaborName', 'Harga', 'removeWOLabor', 'Belum ada jasa.');
   const subletListEl = document.getElementById('wo_sublet_list');
-  if(subletListEl) subletListEl.innerHTML = woCart.sublets.map((s,i)=>`<div class="chip">${woItemChipLabel(s.SubletName,s.Qty,s.HargaJual*s.Qty,s.DiskonPersen||0)}<button onclick="removeWOSublet(${i})">&times;</button></div>`).join('') || '<span class="muted" style="font-size:12px;">Belum ada sublet.</span>';
+  if(subletListEl) subletListEl.innerHTML = woItemsTableHtml(woCart.sublets, 'SubletName', 'HargaJual', 'removeWOSublet', 'Belum ada sublet.');
 
   const grossOf = arr => arr.reduce((s,x)=>s+(x.Harga!==undefined?x.Harga:x.HargaJual)*x.Qty,0);
   const discOf = arr => arr.reduce((s,x)=>s+((x.Harga!==undefined?x.Harga:x.HargaJual)*x.Qty)*(x.DiskonPersen||0),0);
@@ -2581,7 +2597,7 @@ async function formPO(){
         <select id="po_part_select" style="flex:2" onchange="updatePOPartHargaPreview()">${window.__parts.map(p=>`<option value="${p.PartNumber}">${esc(p.PartNumber)} - ${esc(p.PartName)}</option>`).join('')}</select>
         <input id="po_part_qty" type="number" value="1" style="width:60px">
         <span id="po_part_harga_preview" class="muted" style="font-size:12px;min-width:110px;white-space:nowrap;">-</span>
-        <button class="btn secondary sm" onclick="addPOPart()">+ Add</button>
+        <button class="btn accent sm" onclick="addPOPart()">+ Add</button>
       </div>
       <p style="font-size:11px;color:#666;margin:2px 0 0;">Harga otomatis mengikuti Harga Beli di Part Master (tidak bisa diubah manual di sini).</p>
       `}
@@ -3097,14 +3113,14 @@ async function renderRevenueGPReport(){
   setMain(skeletonRows(4));
   setMain(`
     <div class="page-head"><div><h2>Revenue vs Gross Profit</h2><p>Revenue = Total WO setelah diskon. GP = Revenue - estimasi COGS (Part x Cost Price + Sublet x Harga Beli). Labor dianggap tanpa COGS.</p></div>
-      <button class="btn secondary sm" onclick="exportRevenueGPExcel()">⬇ Export Excel</button>
+      <button class="btn outline sm" onclick="exportRevenueGPExcel()">⬇ Export Excel</button>
     </div>
     <div class="panel" style="margin-bottom:12px;">
       <div class="row-line" style="flex-wrap:wrap;gap:10px;align-items:flex-end;">
         <div><label style="font-size:11px;display:block;">Periode</label>${periodSelectorHtml('rgp_period','this_month')}</div>
         <div><label style="font-size:11px;display:block;">atau Dari Tanggal</label><input type="date" id="rgp_from" style="width:150px;"></div>
         <div><label style="font-size:11px;display:block;">Ke Tanggal</label><input type="date" id="rgp_to" style="width:150px;"></div>
-        <button class="btn secondary sm" onclick="loadRevenueGPReport()">Terapkan Filter</button>
+        <button class="btn outline sm" onclick="loadRevenueGPReport()">Terapkan Filter</button>
         <button class="btn ghost sm" onclick="setFieldValue('rgp_from','');setFieldValue('rgp_to','');setFieldValue('rgp_period','this_month');loadRevenueGPReport();">Reset</button>
       </div>
     </div>
@@ -3177,14 +3193,14 @@ async function renderUnitEntryReport(){
   setMain(skeletonRows(4));
   setMain(`
     <div class="page-head"><div><h2>Unit Entry (VIN Unik per Hari)</h2><p>Kendaraan dengan No Rangka (VIN) sama yang masuk di hari yang sama dihitung sebagai SATU Unit Entry.</p></div>
-      <button class="btn secondary sm" onclick="exportUnitEntryExcel()">⬇ Export Excel</button>
+      <button class="btn outline sm" onclick="exportUnitEntryExcel()">⬇ Export Excel</button>
     </div>
     <div class="panel" style="margin-bottom:12px;">
       <div class="row-line" style="flex-wrap:wrap;gap:10px;align-items:flex-end;">
         <div><label style="font-size:11px;display:block;">Periode</label>${periodSelectorHtml('ue_period','this_month')}</div>
         <div><label style="font-size:11px;display:block;">atau Dari Tanggal</label><input type="date" id="ue_from" style="width:150px;"></div>
         <div><label style="font-size:11px;display:block;">Ke Tanggal</label><input type="date" id="ue_to" style="width:150px;"></div>
-        <button class="btn secondary sm" onclick="loadUnitEntryReport()">Terapkan Filter</button>
+        <button class="btn outline sm" onclick="loadUnitEntryReport()">Terapkan Filter</button>
         <button class="btn ghost sm" onclick="setFieldValue('ue_from','');setFieldValue('ue_to','');setFieldValue('ue_period','this_month');loadUnitEntryReport();">Reset</button>
       </div>
     </div>
