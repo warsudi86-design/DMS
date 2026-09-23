@@ -345,7 +345,10 @@ textarea{resize:vertical;min-height:60px;}
     <p class="sub">BW Auto Craft — Dealer Management System</p>
     <label>Pilih Nama Anda</label>
     <select id="login_user_select"></select>
+    <label style="margin-top:10px;">Password</label>
+    <input type="password" id="login_password" placeholder="Password" onkeydown="if(event.key==='Enter')submitLogin()">
     <p class="sub" id="loginEmpty" style="display:none;margin-top:6px;">Belum ada data karyawan terdaftar. Hubungi akun <b>Super Admin</b> untuk didaftarkan lewat menu Karyawan / Role.</p>
+    <p class="sub" id="loginError" style="display:none;margin-top:6px;color:#f28080;"></p>
     <button class="btn" id="loginSubmitBtn" style="width:100%;margin-top:14px;" onclick="submitLogin()">Masuk</button>
   </div>
 </div>
@@ -369,7 +372,7 @@ textarea{resize:vertical;min-height:60px;}
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
         <input id="globalSearch" placeholder="Cari part, WO, PO...">
       </div>
-      <div class="role-pill" id="rolePill" onclick="openRoleSwitcher()" title="Ganti pengguna aktif">👤 <span id="rolePillText">Pilih pengguna</span></div>
+      <div class="role-pill" id="rolePill" title="Pengguna yang sedang login" onclick="toast('Untuk ganti pengguna, silakan Logout (ikon ⏻) lalu login ulang dengan password.')">👤 <span id="rolePillText">Pilih pengguna</span></div>
       <button class="collapse-btn" onclick="logout()" title="Logout">⏻</button>
       <div class="bell" onclick="views.dashboard()" title="Peringatan stok"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg><span class="dot" id="bellDot" style="display:none"></span></div>
       <div class="avatar">AF</div>
@@ -567,7 +570,7 @@ function statusBadge(status, map){ const slot = (map||WO_STATUS_SLOT)[status] ||
 
 function openModal(html){ document.getElementById('modalBody').innerHTML = html; document.getElementById('modalBg').classList.add('show'); }
 function closeModal(){ document.getElementById('modalBg').classList.remove('show'); }
-document.getElementById('modalBg').addEventListener('click', e=>{ if(e.target.id==='modalBg') closeModal(); });
+document.getElementById('modalBg').addEventListener('click', e=>{ if(e.target.id==='modalBg' && !window.__modalLocked) closeModal(); });
 
 function openDrawer(html, wide){ const d=document.getElementById('drawer'); d.innerHTML = html; d.classList.toggle('wide', !!wide); document.getElementById('drawerBg').classList.add('show'); requestAnimationFrame(()=>d.classList.add('show')); }
 function closeDrawer(){ const d=document.getElementById('drawer'); d.classList.remove('show'); setTimeout(()=>{ document.getElementById('drawerBg').classList.remove('show'); d.classList.remove('wide'); },250); }
@@ -1332,13 +1335,18 @@ async function saveMenuPrivilege(){
 function formUser(u){
   u = u || {};
   const isEdit = !!u.Username;
+  const actor = getActor();
+  // Role 'Super Admin' hanya boleh dipilih kalau yang membuat/mengedit adalah Super Admin sendiri -
+  // mencegah user lain menaikkan privilege dirinya sendiri lewat form ini (backend juga menolak).
+  const roleOptions = ROLES.filter(r=> r!=='Super Admin' || actor.role==='Super Admin' || u.Role==='Super Admin');
   openDrawer(`
     <div class="drawer-head"><h3>${isEdit?'Edit':'Tambah'} Karyawan</h3><button class="drawer-close" onclick="closeDrawer()">&times;</button></div>
     <div class="drawer-body">
       <label>Kode / Username</label><input id="f_uname" ${isEdit?'disabled':''}>
       <label>Nama</label><input id="f_unama">
-      <label>Role</label><select id="f_urole">${ROLES.map(r=>`<option value="${r}">${r}</option>`).join('')}</select>
+      <label>Role</label><select id="f_urole" ${(u.Role==='Super Admin' && actor.role!=='Super Admin')?'disabled':''}>${roleOptions.map(r=>`<option value="${r}">${r}</option>`).join('')}</select>
       <label>Status</label><select id="f_uactive"><option value="true">Aktif</option><option value="false">Nonaktif</option></select>
+      <label>${isEdit?'Password Baru (kosongkan jika tidak ingin mengubah)':'Password'}</label><input type="password" id="f_upass" placeholder="${isEdit?'••••••':'Wajib diisi'}">
     </div>
     <div class="drawer-foot"><button class="btn secondary" onclick="closeDrawer()">Batal</button>
     <button class="btn" onclick="submitUser(${isEdit})">Simpan</button></div>
@@ -1349,8 +1357,10 @@ function formUser(u){
   const actEl = document.getElementById('f_uactive'); if(actEl) actEl.value = (u.Active===false||u.Active==='FALSE') ? 'false' : 'true';
 }
 async function submitUser(isEdit){
-  const payload = { Username: val('f_uname'), Nama: val('f_unama'), Role: val('f_urole'), Active: val('f_uactive')==='true' };
+  const actor = getActor();
+  const payload = { Username: val('f_uname'), Nama: val('f_unama'), Role: val('f_urole'), Active: val('f_uactive')==='true', Password: val('f_upass'), ActorRole: actor.role, ActorName: actor.name };
   if(!payload.Username || !payload.Nama){ toast('Kode dan Nama wajib diisi', true); return; }
+  if(!isEdit && !payload.Password){ toast('Password wajib diisi untuk karyawan baru', true); return; }
   const res = await apiPost('saveUser', payload);
   if(res.success){ toast('Karyawan tersimpan'); closeDrawer(); renderKaryawan(); } else toast(res.message, true);
 }
@@ -1368,40 +1378,9 @@ function setActor(actor){
   const pillText = document.getElementById('rolePillText');
   if(pillText) pillText.textContent = actor.name + ' · ' + actor.role;
 }
-async function openRoleSwitcher(){
-  const res = await apiGet('listUsers');
-  const users = (res.data||[]).filter(u=> !(u.Active===false||u.Active==='FALSE'));
-  const current = getActor();
-  openModal(`
-    <h3 style="margin:0 0 4px;">Ganti Pengguna Aktif</h3>
-    <p class="sub" style="margin:0 0 14px;">Menentukan aksi apa saja yang boleh Anda lakukan di Work Order (Dispatch, Material Picking, Completed, Invoice, Delivery, Pembatalan).</p>
-    ${users.length===0 ? `<div class="warn-box">Belum ada data karyawan. Tambahkan dulu lewat menu <b>Karyawan / Role</b>.</div>` : `
-    <label>Pilih Karyawan</label>
-    <select id="roleSwitchSelect">${users.map(u=>`<option value="${esc(u.Username)}">${esc(u.Nama)} — ${esc(u.Role)}</option>`).join('')}</select>
-    `}
-    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:6px;">
-      <button class="btn secondary" onclick="closeModal()">Tutup</button>
-      ${users.length? `<button class="btn" onclick="confirmRoleSwitch()">Gunakan</button>`:''}
-    </div>
-  `);
-  window.__roleSwitchUsers = users;
-  if(users.length){
-    const sel = document.getElementById('roleSwitchSelect');
-    const match = users.find(u=>u.Nama===current.name);
-    if(match) sel.value = match.Username;
-  }
-}
-function confirmRoleSwitch(){
-  const uname = val('roleSwitchSelect');
-  const u = (window.__roleSwitchUsers||[]).find(x=>x.Username===uname);
-  if(!u){ closeModal(); return; }
-  setActor({name:u.Nama, role:u.Role});
-  buildNav(); // menu yang terlihat bisa beda tiap role - refresh sidebar setelah ganti pengguna
-  const dashItem = document.querySelector('[data-view="dashboard"]');
-  if(dashItem) dashItem.click(); else renderDashboard();
-  toast('Login sebagai '+u.Nama+' ('+u.Role+')');
-  closeModal();
-}
+// CATATAN KEAMANAN: dulu ada "Ganti Pengguna Aktif" yang bisa langsung pindah role tanpa password -
+// ini celah keamanan (SA bisa klik lalu pilih jadi Manager begitu saja). Sekarang SATU-SATUNYA cara
+// ganti pengguna adalah logout() lalu login ulang dengan password di halaman depan.
 
 /* ================= LOGIN (halaman depan sesuai role) ================= */
 function isLoggedIn(){
@@ -1418,6 +1397,8 @@ async function showLoginScreen(){
   const sel = document.getElementById('login_user_select');
   const emptyMsg = document.getElementById('loginEmpty');
   const btn = document.getElementById('loginSubmitBtn');
+  setFieldValue('login_password','');
+  const errEl = document.getElementById('loginError'); if(errEl) errEl.style.display='none';
   if(users.length===0){
     if(sel) sel.style.display='none';
     if(emptyMsg) emptyMsg.style.display='block';
@@ -1430,10 +1411,58 @@ async function showLoginScreen(){
 }
 async function submitLogin(){
   const uname = val('login_user_select');
-  const u = (window.__loginUsers||[]).find(x=>x.Username===uname);
-  if(!u){ toast('Pilih nama Anda terlebih dahulu', true); return; }
+  const pwd = val('login_password');
+  const errEl = document.getElementById('loginError');
+  if(errEl) errEl.style.display='none';
+  if(!uname){ toast('Pilih nama Anda terlebih dahulu', true); return; }
+  if(!pwd){ if(errEl){errEl.textContent='Password wajib diisi.'; errEl.style.display='block';} return; }
+  const res = await apiPost('login', {Username:uname, Password:pwd});
+  if(!res.success){
+    if(errEl){ errEl.textContent = res.message; errEl.style.display='block'; } else toast(res.message,true);
+    return;
+  }
+  setFieldValue('login_password','');
+  if(res.mustSetPassword){
+    // JANGAN tandai logged-in dulu sebelum password baru benar-benar dibuat - kalau halaman di-refresh
+    // di tengah proses ini, pengguna harus login ulang, bukan lolos ke dashboard tanpa password.
+    openMustSetPasswordModal(res.data.Username, res.data.Nama, res.data.Role);
+    return;
+  }
   try{ localStorage.setItem('dms_logged_in','1'); }catch(e){}
-  setActor({name:u.Nama, role:u.Role});
+  setActor({name:res.data.Nama, role:res.data.Role});
+  await showAppShell();
+}
+// Akun lama/baru yang belum pernah punya password WAJIB set password sendiri dulu, sebelum bisa lanjut
+// masuk ke dashboard - modal ini tidak bisa ditutup tanpa mengisi password baru.
+function openMustSetPasswordModal(username, nama, role){
+  window.__pendingLogin = {username:username, nama:nama, role:role};
+  openModal(`
+    <h3 style="margin:0 0 4px;">Buat Password Baru</h3>
+    <p class="sub" style="margin:0 0 14px;">Akun Anda belum punya password. Buat password baru sekarang sebelum melanjutkan (minimal 4 karakter).</p>
+    <label>Password Baru</label><input type="password" id="newpw_1">
+    <label>Ulangi Password Baru</label><input type="password" id="newpw_2">
+    <div id="newpw_err" class="danger-box" style="display:none;margin-top:4px;"></div>
+    <div style="display:flex;justify-content:flex-end;margin-top:14px;">
+      <button class="btn" onclick="confirmSetOwnPassword()">Simpan &amp; Lanjutkan</button>
+    </div>
+  `);
+  window.__modalLocked = true; // modal ini wajib diisi - tidak boleh ditutup lewat klik backdrop
+}
+async function confirmSetOwnPassword(){
+  const pending = window.__pendingLogin;
+  if(!pending){ closeModal(); return; }
+  const p1 = val('newpw_1'), p2 = val('newpw_2');
+  const errEl = document.getElementById('newpw_err');
+  if(p1.length<4){ errEl.textContent='Password minimal 4 karakter.'; errEl.style.display='block'; return; }
+  if(p1!==p2){ errEl.textContent='Konfirmasi password tidak sama.'; errEl.style.display='block'; return; }
+  const res = await apiPost('setOwnPassword', {Username:pending.username, NewPassword:p1});
+  if(!res.success){ errEl.textContent=res.message; errEl.style.display='block'; return; }
+  window.__modalLocked = false;
+  window.__pendingLogin = null;
+  try{ localStorage.setItem('dms_logged_in','1'); }catch(e){}
+  setActor({name:pending.nama, role:pending.role});
+  toast('Password berhasil dibuat');
+  closeModal();
   await showAppShell();
 }
 async function initAppAfterLogin(){
@@ -1832,7 +1861,7 @@ async function viewWorkOrder(woid){
         ${['Invoice','Vehicle Delivery'].indexOf(header.Status)!==-1 ? `<button class="btn ghost" onclick="printInvoice('${woid}')">🖨 Cetak Invoice</button>`:''}
       </div>
       <div style="display:flex;gap:8px;">
-        ${header.Status!=='Cancelled' ? `<button class="btn critical" onclick="openCancelModal('${woid}','${esc(header.Status)}')">Batalkan WO</button>`:''}
+        ${header.Status!=='Cancelled' && (actor.role==='Manager'||actor.role==='Super Admin') ? `<button class="btn critical" onclick="openCancelModal('${woid}','${esc(header.Status)}')">Batalkan WO</button>`:''}
         ${nextStatus ? `<button class="btn good" onclick="openAdvanceModal('${woid}','${header.Status}','${nextStatus}')">${icon('approve')} Set: ${nextStatus}</button>` : (header.Status!=='Cancelled' ? '<span class="muted">Selesai</span>':'')}
       </div>
     </div>
@@ -1998,8 +2027,7 @@ function openCancelModal(woid, currentStatus){
   const actor = getActor();
   openModal(`
     <h3 style="margin:0 0 4px;">Batalkan Work Order</h3>
-    <p class="sub" style="margin:0 0 14px;">WO ${esc(woid)} (status saat ini: <b>${esc(currentStatus||'-')}</b>) akan dibatalkan. Kalau ada part yang sudah terpotong (Material Picking), stoknya akan dikembalikan otomatis. Hanya role <b>Manager</b> yang bisa melakukan pembatalan abnormal seperti ini, di tahap manapun.</p>
-    ${actor.role!=='Manager'?`<div class="danger-box">Anda login sebagai ${esc(actor.role)}, bukan Manager. Ganti pengguna aktif terlebih dahulu lewat pojok kanan atas.</div>`:''}
+    <p class="sub" style="margin:0 0 14px;">WO ${esc(woid)} (status saat ini: <b>${esc(currentStatus||'-')}</b>) akan dibatalkan. Kalau ada part yang sudah terpotong (Material Picking), stoknya akan dikembalikan otomatis. Hanya role <b>Manager</b>/<b>Super Admin</b> yang bisa melakukan pembatalan abnormal seperti ini, di tahap manapun.</p>
     <label>Alasan Pembatalan</label><textarea id="cancel_reason" placeholder="mis. Customer membatalkan servis, salah input, dll."></textarea>
     <div style="display:flex;justify-content:flex-end;gap:10px;">
       <button class="btn secondary" onclick="closeModal()">Tutup</button>
