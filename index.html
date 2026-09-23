@@ -531,8 +531,8 @@ function donutChart(items, opts={}){
       transform="rotate(-90 ${cx} ${cy})" style="cursor:pointer;transition:.2s;"/>`;
     acc += frac*360;
   });
-  svg += `<text x="${cx}" y="${cy-2}" text-anchor="middle" font-size="20" font-weight="800" fill="var(--ink)">${total}</text>`;
-  svg += `<text x="${cx}" y="${cy+16}" text-anchor="middle" font-size="10" fill="var(--ink-muted)">Total</text>`;
+  svg += '<text x="' + cx + '" y="' + (cy-2) + '" text-anchor="middle" font-size="20" font-weight="800" fill="var(--ink)">' + total + '</text>';
+  svg += '<text x="' + cx + '" y="' + (cy+16) + '" text-anchor="middle" font-size="10" fill="var(--ink-muted)">Total</text>';
   svg += `</svg>`;
   return svg;
 }
@@ -752,25 +752,26 @@ async function renderPartMaster(){
 }
 function formPart(p){
   p = p || {};
-  openDrawer(`
-    <div class="drawer-head"><h3>${p.PartNumber? 'Edit':'Tambah'} Part</h3><button class="drawer-close" onclick="closeDrawer()">&times;</button></div>
-    <div class="drawer-body">
-      <label>Part Number</label><input id="f_pn" value="${esc(p.PartNumber||'')}" ${p.PartNumber?'disabled':''}>
-      <label>Nama Part</label><input id="f_pname" value="${esc(p.PartName||'')}">
-      <div class="grid3">
-        <div><label>Kategori</label><input id="f_kat" value="${esc(p.Kategori||'')}"></div>
-        <div><label>Satuan</label><input id="f_satuan" value="${esc(p.Satuan||'PCS')}"></div>
-        <div><label>Lokasi Rak</label><input id="f_lokasi" value="${esc(p.Lokasi||'')}"></div>
-        <div><label>Harga Beli</label><input id="f_hbeli" type="number" value="${p.HargaBeli||0}"></div>
-        <div><label>Harga Jual</label><input id="f_hjual" type="number" value="${p.HargaJual||0}"></div>
-        <div><label>Stok Minimum</label><input id="f_stokmin" type="number" value="${p.StokMinimum||0}"></div>
-      </div>
-      <label>${p.PartNumber?'Stok Saat Ini (readonly, ubah lewat Inbound/Outbound)':'Stok Awal'}</label>
-      <input id="f_stokawal" type="number" value="${p.StokAkhir||0}" ${p.PartNumber?'disabled':''}>
-    </div>
-    <div class="drawer-foot"><button class="btn secondary" onclick="closeDrawer()">Batal</button>
-    <button class="btn" onclick="savePart()">Simpan</button></div>
-  `);
+  const vHbeli = String(p.HargaBeli||0), vHjual = String(p.HargaJual||0), vStokmin = String(p.StokMinimum||0), vStokakhir = String(p.StokAkhir||0);
+  openDrawer(
+    '<div class="drawer-head"><h3>' + (p.PartNumber? 'Edit':'Tambah') + ' Part</h3><button class="drawer-close" onclick="closeDrawer()">&times;</button></div>' +
+    '<div class="drawer-body">' +
+      '<label>Part Number</label><input id="f_pn" value="' + esc(p.PartNumber||'') + '" ' + (p.PartNumber?'disabled':'') + '>' +
+      '<label>Nama Part</label><input id="f_pname" value="' + esc(p.PartName||'') + '">' +
+      '<div class="grid3">' +
+        '<div><label>Kategori</label><input id="f_kat" value="' + esc(p.Kategori||'') + '"></div>' +
+        '<div><label>Satuan</label><input id="f_satuan" value="' + esc(p.Satuan||'PCS') + '"></div>' +
+        '<div><label>Lokasi Rak</label><input id="f_lokasi" value="' + esc(p.Lokasi||'') + '"></div>' +
+        '<div><label>Harga Beli</label><input id="f_hbeli" type="number" value="' + vHbeli + '"></div>' +
+        '<div><label>Harga Jual</label><input id="f_hjual" type="number" value="' + vHjual + '"></div>' +
+        '<div><label>Stok Minimum</label><input id="f_stokmin" type="number" value="' + vStokmin + '"></div>' +
+      '</div>' +
+      '<label>' + (p.PartNumber?'Stok Saat Ini (readonly, ubah lewat Inbound/Outbound)':'Stok Awal') + '</label>' +
+      '<input id="f_stokawal" type="number" value="' + vStokakhir + '" ' + (p.PartNumber?'disabled':'') + '>' +
+    '</div>' +
+    '<div class="drawer-foot"><button class="btn secondary" onclick="closeDrawer()">Batal</button>' +
+    '<button class="btn" onclick="savePart()">Simpan</button></div>'
+  );
 }
 async function savePart(){
   const payload = { PartNumber:val('f_pn'), PartName:val('f_pname'), Kategori:val('f_kat'), Satuan:val('f_satuan'),
@@ -802,20 +803,21 @@ async function renderLaborMaster(){
 }
 function formLabor(l){
   l = l || {};
-  openDrawer(`
-    <div class="drawer-head"><h3>${l.LaborCode? 'Edit':'Tambah'} Labor</h3><button class="drawer-close" onclick="closeDrawer()">&times;</button></div>
-    <div class="drawer-body">
-      <label>Kode Labor</label><input id="f_lc" value="${esc(l.LaborCode||'')}" ${l.LaborCode?'disabled':''}>
-      <label>Nama Jasa</label><input id="f_lname" value="${esc(l.LaborName||'')}">
-      <div class="grid3">
-        <div><label>Kategori</label><input id="f_lkat" value="${esc(l.Kategori||'')}"></div>
-        <div><label>Harga</label><input id="f_lharga" type="number" value="${l.Harga||0}"></div>
-        <div><label>Estimasi Menit</label><input id="f_lest" type="number" value="${l.EstimasiMenit||0}"></div>
-      </div>
-    </div>
-    <div class="drawer-foot"><button class="btn secondary" onclick="closeDrawer()">Batal</button>
-    <button class="btn" onclick="saveLabor()">Simpan</button></div>
-  `);
+  const vHarga = String(l.Harga||0), vEst = String(l.EstimasiMenit||0);
+  openDrawer(
+    '<div class="drawer-head"><h3>' + (l.LaborCode? 'Edit':'Tambah') + ' Labor</h3><button class="drawer-close" onclick="closeDrawer()">&times;</button></div>' +
+    '<div class="drawer-body">' +
+      '<label>Kode Labor</label><input id="f_lc" value="' + esc(l.LaborCode||'') + '" ' + (l.LaborCode?'disabled':'') + '>' +
+      '<label>Nama Jasa</label><input id="f_lname" value="' + esc(l.LaborName||'') + '">' +
+      '<div class="grid3">' +
+        '<div><label>Kategori</label><input id="f_lkat" value="' + esc(l.Kategori||'') + '"></div>' +
+        '<div><label>Harga</label><input id="f_lharga" type="number" value="' + vHarga + '"></div>' +
+        '<div><label>Estimasi Menit</label><input id="f_lest" type="number" value="' + vEst + '"></div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="drawer-foot"><button class="btn secondary" onclick="closeDrawer()">Batal</button>' +
+    '<button class="btn" onclick="saveLabor()">Simpan</button></div>'
+  );
 }
 async function saveLabor(){
   const payload = { LaborCode:val('f_lc'), LaborName:val('f_lname'), Kategori:val('f_lkat'), Harga:val('f_lharga'), EstimasiMenit:val('f_lest') };
@@ -1178,11 +1180,14 @@ async function loadPODetailForGR(){
   const res = await apiGet('getPO', {id:ponumber});
   const details = res.data.details;
   window.__grDetails = details;
-  document.getElementById('gr_detail_list').innerHTML = `<h3 style="font-size:13.5px;">Detail Part</h3><table><tr><th>Part</th><th>Order</th><th>Diterima</th><th>Qty Sekarang</th><th>Kondisi</th></tr>
-    ${details.map((d,i)=>`<tr><td>${esc(d.PartName)}</td><td>${d.QtyOrder}</td><td>${d.QtyDiterima||0}</td>
-      <td><input type="number" id="gr_qty_${i}" value="${Math.max(0,d.QtyOrder-(d.QtyDiterima||0))}" style="width:64px;margin:0;"></td>
-      <td><select id="gr_kondisi_${i}" style="margin:0;"><option>Baik</option><option>Rusak</option></select></td></tr>`).join('')}
-    </table>`;
+  document.getElementById('gr_detail_list').innerHTML = '<h3 style="font-size:13.5px;">Detail Part</h3><table><tr><th>Part</th><th>Order</th><th>Diterima</th><th>Qty Sekarang</th><th>Kondisi</th></tr>' +
+    details.map(function(d,i){
+      const sisa = String(Math.max(0, Number(d.QtyOrder) - Number(d.QtyDiterima||0)));
+      return '<tr><td>' + esc(d.PartName) + '</td><td>' + d.QtyOrder + '</td><td>' + (d.QtyDiterima||0) + '</td>' +
+      '<td><input type="number" id="gr_qty_' + i + '" value="' + sisa + '" style="width:64px;margin:0;"></td>' +
+      '<td><select id="gr_kondisi_' + i + '" style="margin:0;"><option>Baik</option><option>Rusak</option></select></td></tr>';
+    }).join('') +
+    '</table>';
 }
 async function submitPenerimaan(){
   const details = window.__grDetails.map((d,i)=>({
