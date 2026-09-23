@@ -1416,18 +1416,18 @@ async function formWorkOrder(){
 
             <h3 style="font-size:13.5px;margin-bottom:8px;">Part (dari Part Master)</h3>
             <div class="row-line">
-              <div style="flex:2">${comboSearchHtml('wo_part_combo','Cari No Part / Nama Part...')}</div>
-              <input id="wo_part_qty" type="number" value="1" style="width:60px" title="Qty">
-              <input id="wo_part_disc" type="number" value="0" step="0.01" class="item-disc-input" title="Diskon (mis. 0.1 = 10%)" placeholder="Disc%">
+              <div style="flex:2"><label style="font-size:11px;">Cari Part</label>${comboSearchHtml('wo_part_combo','Cari No Part / Nama Part...')}</div>
+              <div style="width:60px"><label style="font-size:11px;">Qty</label><input id="wo_part_qty" type="number" value="1"></div>
+              <div style="width:70px"><label style="font-size:11px;">Diskon</label><input id="wo_part_disc" type="number" value="0" step="0.01" class="item-disc-input" title="Diskon (mis. 0.1 = 10%)" placeholder="0.1"></div>
               <button class="btn secondary sm" onclick="addWOPart()">+ Add</button>
             </div>
             <div id="wo_part_list" class="chip-list"></div>
 
             <h3 style="font-size:13.5px;margin-bottom:8px;">Labor (dari Labor Master)</h3>
             <div class="row-line">
-              <div style="flex:2">${comboSearchHtml('wo_labor_combo','Cari Kode / Nama Jasa...')}</div>
-              <input id="wo_labor_qty" type="number" value="1" style="width:60px" title="Qty">
-              <input id="wo_labor_disc" type="number" value="0" step="0.01" class="item-disc-input" title="Diskon (mis. 0.1 = 10%)" placeholder="Disc%">
+              <div style="flex:2"><label style="font-size:11px;">Cari Jasa</label>${comboSearchHtml('wo_labor_combo','Cari Kode / Nama Jasa...')}</div>
+              <div style="width:60px"><label style="font-size:11px;">Qty</label><input id="wo_labor_qty" type="number" value="1"></div>
+              <div style="width:70px"><label style="font-size:11px;">Diskon</label><input id="wo_labor_disc" type="number" value="0" step="0.01" class="item-disc-input" title="Diskon (mis. 0.1 = 10%)" placeholder="0.1"></div>
               <button class="btn secondary sm" onclick="addWOLabor()">+ Add</button>
             </div>
             <div id="wo_labor_list" class="chip-list"></div>
@@ -1457,7 +1457,7 @@ async function formWorkOrder(){
           <p class="sub" style="margin:8px 0 2px;">Rasio Diskon: <b id="wo_diskon_ratio_text">0%</b></p>
           <div class="disc-ratio-bar" id="wo_diskon_ratio_bar"><div style="width:0%"></div></div>
           <div id="wo_diskon_warning"></div>
-          <p class="sub" style="margin-top:14px;">Ketik diskon per item dalam bentuk desimal, mis. <b>0,1</b> untuk 10%. Jika total diskon melebihi 10% dari subtotal, Work Order wajib dibuat/disetujui oleh akun <b>Manager</b>.</p>
+          <p class="sub" style="margin-top:14px;">Ketik diskon per item dalam bentuk desimal, mis. <b>0,1</b> untuk 10%. WO tetap bisa disimpan berapa pun diskonnya, tapi kalau totalnya melebihi 10% dari subtotal, WO baru bisa lanjut ke <b>Dispatching</b> setelah disetujui akun <b>Manager</b>.</p>
         </div>
       </div>
     </div>
@@ -1491,15 +1491,21 @@ async function formWorkOrder(){
   });
   renderWOLists();
 }
-function addWOPart(){
+async function addWOPart(){
   const pn = val('wo_part_combo');
   if(!pn){ toast('Pilih part terlebih dahulu dari hasil pencarian', true); return; }
   const qty = Number(val('wo_part_qty'))||1;
   const disc = Math.min(1, Math.max(0, Number(val('wo_part_disc'))||0));
-  const part = window.__parts.find(p=>p.PartNumber===pn);
-  if(!part) return;
-  if(Number(part.StokAkhir)<=0){ toast('Stok part "'+part.PartName+'" habis, tidak bisa ditambahkan', true); return; }
-  woCart.parts.push({PartNumber:pn, PartName:part.PartName, Qty:qty, Harga:part.HargaJual, DiskonPersen:disc});
+  // Ambil ulang data part TERBARU langsung dari server sebelum cek stok, supaya tidak memakai data
+  // cache lama di browser (mis. drawer WO sudah lama terbuka sementara stok baru saja berubah di menu lain).
+  const pres = await apiGet('listPart');
+  if(pres.success) window.__parts = pres.data||window.__parts;
+  const part = window.__parts.find(p=>String(p.PartNumber)===String(pn));
+  if(!part){ toast('Part tidak ditemukan, silakan cari ulang', true); return; }
+  const stokTersedia = Number(part.StokAkhir)||0;
+  if(stokTersedia<=0){ toast('Stok part "'+part.PartName+'" saat ini kosong (0), tidak bisa ditambahkan', true); return; }
+  if(qty > stokTersedia){ toast('Qty ('+qty+') melebihi stok tersedia ('+stokTersedia+') untuk part "'+part.PartName+'"', true); return; }
+  woCart.parts.push({PartNumber:part.PartNumber, PartName:part.PartName, Qty:qty, Harga:part.HargaJual, DiskonPersen:disc});
   renderWOLists();
   setFieldValue('wo_part_combo',''); const inp=document.getElementById('wo_part_combo_input'); if(inp) inp.value='';
   setFieldValue('wo_part_disc',0);
@@ -1558,13 +1564,12 @@ function renderWOLists(){
   }
   const actor = getActor();
   const overLimit = ratio > 0.1;
-  const needsManager = overLimit && actor.role !== 'Manager';
   const warnEl = document.getElementById('wo_diskon_warning');
-  if(warnEl) warnEl.innerHTML = needsManager
-    ? `<div class="danger-box" style="margin-top:8px;">Diskon melebihi 10% dari subtotal. Tombol Simpan dinonaktifkan — minta akun <b>Manager</b> untuk membuat/menyetujui Work Order ini.</div>`
-    : (overLimit ? `<div class="warn-box" style="margin-top:8px;">Diskon melebihi 10%, disetujui oleh akun Manager (${esc(actor.name)}).</div>` : '');
-  const submitBtn = document.getElementById('wo_submit_btn');
-  if(submitBtn) submitBtn.disabled = needsManager;
+  if(warnEl) warnEl.innerHTML = overLimit
+    ? `<div class="warn-box" style="margin-top:8px;">Diskon melebihi 10% dari subtotal. WO tetap bisa disimpan, tapi <b>tidak bisa Dispatching</b> sampai disetujui oleh akun Manager.</div>`
+    : '';
+  // Tombol Simpan TIDAK pernah dinonaktifkan di sini - SA selalu boleh menyimpan WO.
+  // Persetujuan Manager baru diperlukan nanti saat WO mau naik ke status Dispatching.
 }
 async function submitWorkOrder(){
   const custId = val('wo_cust_id'); const vehId = val('wo_veh_combo');
@@ -1573,9 +1578,7 @@ async function submitWorkOrder(){
   const discOf = arr => arr.reduce((s,x)=>s+((x.Harga!==undefined?x.Harga:x.HargaJual)*x.Qty)*(x.DiskonPersen||0),0);
   const subtotal = grossOf(woCart.parts) + grossOf(woCart.labors) + grossOf(woCart.sublets);
   const totalDiskon = discOf(woCart.parts) + discOf(woCart.labors) + discOf(woCart.sublets);
-  const ratio = subtotal>0 ? (totalDiskon/subtotal) : 0;
   const actor = getActor();
-  if(ratio > 0.1 && actor.role !== 'Manager'){ toast('Diskon melebihi 10%, wajib disetujui oleh akun Manager', true); return; }
   const payload = {
     CustomerID: custId, VehicleID: vehId, JenisWO: val('wo_jenis'),
     SA: val('wo_sa'), KM: val('wo_km'), Keluhan: val('wo_keluhan'), Diskon: totalDiskon,
@@ -1595,8 +1598,12 @@ async function viewWorkOrder(woid){
   let nextStatus = header.Status==='Cancelled' ? null : WO_FLOW[curIdx+1];
   const noParts = (parts||[]).length===0;
   if(nextStatus==='Material Picking' && noParts) nextStatus = 'Completed'; // WO tanpa part, lewati tahap Part Staff
-  const editable = ['New','Dispatching','Material Picking','Completed'].indexOf(header.Status)!==-1;
+  // SA masih bisa tambah Jasa/Part/Sublet SELAMA belum Completed - begitu Completed, item dikunci.
+  const editable = ['New','Dispatching','Material Picking'].indexOf(header.Status)!==-1;
   const actor = getActor();
+  const subtotalKotor = Number(header.TotalPart||0)+Number(header.TotalLabor||0)+Number(header.TotalSublet||0);
+  const diskonRatio = subtotalKotor>0 ? (Number(header.Diskon||0)/subtotalKotor) : 0;
+  const diskonPending = diskonRatio > 0.1 && !header.DiskonApprovedBy;
   const stepperHtml = header.Status==='Cancelled'
     ? `<div class="danger-box">⚠ Work Order ini <b>DIBATALKAN</b> oleh ${esc(header.CancelledBy||'-')} pada ${fmtDate(header.TglCancel)}.<br>Alasan: ${esc(header.CancelReason||'-')}</div>`
     : `<div class="stepper">${WO_FLOW.map((s,i)=>`
@@ -1632,10 +1639,13 @@ async function viewWorkOrder(woid){
         ${(sublets||[]).map(s=>`<tr><td>${esc(s.SubletName)}</td><td>${s.Qty}</td><td>${fmtMoneyFull(s.HargaJual)}</td><td>${fmtMoneyFull(s.Subtotal)}</td></tr>`).join('') || `<tr><td colspan="4">${emptyState('Tidak ada sublet')}</td></tr>`}
       </table>
 
-      <div class="kv" style="margin-top:8px;"><span>Subtotal (Part+Labor+Sublet)</span><b>${fmtMoneyFull(Number(header.TotalPart||0)+Number(header.TotalLabor||0)+Number(header.TotalSublet||0))}</b></div>
-      ${Number(header.Diskon||0)>0?`<div class="kv"><span>Diskon</span><b>- ${fmtMoneyFull(header.Diskon)}</b></div>`:''}
+      <div class="kv" style="margin-top:8px;"><span>Subtotal (Part+Labor+Sublet)</span><b>${fmtMoneyFull(subtotalKotor)}</b></div>
+      ${Number(header.Diskon||0)>0?`<div class="kv"><span>Diskon (${(diskonRatio*100).toFixed(1)}%)</span><b>- ${fmtMoneyFull(header.Diskon)}</b></div>`:''}
       <div class="kv" style="font-size:15px;margin-top:4px;"><span>Total Work Order</span><b>${fmtMoneyFull(header.TotalWO)}</b></div>
-      ${!editable && header.Status!=='Cancelled' ? `<p class="sub" style="margin-top:8px;">ℹ WO sudah masuk status Invoice, tidak bisa ditambah item lagi.</p>`:''}
+      ${diskonPending ? `<div class="danger-box" style="margin-top:10px;">⚠ Diskon ${(diskonRatio*100).toFixed(1)}% melebihi 10% dari subtotal, <b>menunggu persetujuan Manager</b> sebelum WO ini bisa Dispatching.
+        ${actor.role==='Manager' ? `<div style="margin-top:8px;"><button class="btn good sm" onclick="confirmApproveDiskon('${woid}')">${icon('approve')} Setujui Diskon Sekarang</button></div>` : ''}
+      </div>` : (header.DiskonApprovedBy ? `<div class="warn-box" style="margin-top:10px;">✓ Diskon di atas 10% sudah disetujui oleh <b>${esc(header.DiskonApprovedBy)}</b>.</div>` : '')}
+      ${!editable && header.Status!=='Cancelled' ? `<p class="sub" style="margin-top:8px;">ℹ WO sudah Completed, tidak bisa ditambah item lagi.</p>`:''}
       ${noParts && header.Status==='Dispatching' ? `<p class="sub" style="margin-top:8px;">ℹ WO ini tidak ada part, jadi tahap Material Picking (Part Staff) otomatis dilewati — langsung ke Completed.</p>`:''}
     </div>
     <div class="drawer-foot">
@@ -1645,11 +1655,16 @@ async function viewWorkOrder(woid){
         ${['Invoice','Vehicle Delivery'].indexOf(header.Status)!==-1 ? `<button class="btn ghost" onclick="printInvoice('${woid}')">🖨 Cetak Invoice</button>`:''}
       </div>
       <div style="display:flex;gap:8px;">
-        ${header.Status==='Vehicle Delivery' && actor.role==='Manager' ? `<button class="btn critical" onclick="openCancelModal('${woid}')">Batalkan WO</button>`:''}
+        ${header.Status!=='Cancelled' ? `<button class="btn critical" onclick="openCancelModal('${woid}','${esc(header.Status)}')">Batalkan WO</button>`:''}
         ${nextStatus ? `<button class="btn good" onclick="openAdvanceModal('${woid}','${header.Status}','${nextStatus}')">${icon('approve')} Set: ${nextStatus}</button>` : (header.Status!=='Cancelled' ? '<span class="muted">Selesai</span>':'')}
       </div>
     </div>
   `);
+}
+async function confirmApproveDiskon(woid){
+  const actor = getActor();
+  const res = await apiPost('approveWODiskon', {WOID:woid, ActorRole:actor.role, ActorName:actor.name});
+  if(res.success){ toast('Diskon disetujui, WO siap Dispatching'); viewWorkOrder(woid); renderWorkOrder(); } else toast(res.message,true);
 }
 
 /* ---- tambah item (Part/Labor/Sublet) ke WO yang sudah ada, sebelum masuk status Invoice ---- */
@@ -1718,18 +1733,24 @@ async function submitAddItem(woid, type){
 async function openAdvanceModal(woid, fromStatus, toStatus){
   const actor = getActor();
   if(toStatus==='Dispatching'){
-    const ures = await apiGet('listUsers');
+    const [ures, wres] = await Promise.all([apiGet('listUsers'), apiGet('getWorkOrder',{id:woid})]);
     const mekaniks = (ures.data||[]).filter(u=>u.Role==='Mekanik' && !(u.Active===false||u.Active==='FALSE'));
+    const h = wres.data ? wres.data.header : {};
+    const subtotalKotor = Number(h.TotalPart||0)+Number(h.TotalLabor||0)+Number(h.TotalSublet||0);
+    const diskonRatio = subtotalKotor>0 ? (Number(h.Diskon||0)/subtotalKotor) : 0;
+    const diskonPending = diskonRatio>0.1 && !h.DiskonApprovedBy;
+    const blocked = diskonPending && actor.role!=='Manager';
     openModal(`
-      <h3 style="margin:0 0 4px;">Dispatching — Persetujuan Manager</h3>
-      <p class="sub" style="margin:0 0 14px;">WO ${esc(woid)} akan ditugaskan ke mekanik berikut. Dispatching WAJIB disetujui oleh akun Manager.</p>
-      ${actor.role!=='Manager' ? `<div class="warn-box">Aksi ini hanya untuk role <b>Manager</b> (persetujuan sebelum WO lanjut ke mekanik). Anda login sebagai ${esc(actor.role)}.</div>`:''}
+      <h3 style="margin:0 0 4px;">Dispatching</h3>
+      <p class="sub" style="margin:0 0 14px;">WO ${esc(woid)} akan ditugaskan ke mekanik berikut.</p>
+      ${actor.role!=='SA' && actor.role!=='Manager' ? `<div class="warn-box">Aksi ini hanya untuk role <b>SA</b> (atau Manager). Anda login sebagai ${esc(actor.role)}.</div>`:''}
+      ${diskonPending ? `<div class="danger-box">⚠ Diskon WO ini ${(diskonRatio*100).toFixed(1)}% melebihi 10% dari subtotal dan belum disetujui Manager. ${actor.role==='Manager' ? 'Klik Dispatch untuk sekaligus menyetujui diskon ini.' : 'Minta akun Manager menyetujui diskon dulu sebelum Dispatching (lihat detail WO).'}</div>` : ''}
       ${mekaniks.length===0? `<div class="warn-box">Belum ada karyawan dengan role Mekanik. Tambahkan lewat menu Karyawan / Role, atau ketik nama manual di bawah.</div>
       <label>Nama Mekanik</label><input id="disp_mekanik_manual" placeholder="Nama mekanik">` : `
       <label>Mekanik</label>${comboSearchHtml('disp_mekanik_combo','Cari nama mekanik...')}`}
       <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:10px;">
         <button class="btn secondary" onclick="closeModal()">Batal</button>
-        <button class="btn good" onclick="confirmDispatch('${woid}', ${mekaniks.length>0})">${icon('approve')} Dispatch</button>
+        <button class="btn good" ${blocked?'disabled':''} onclick="confirmDispatch('${woid}', ${mekaniks.length>0})">${icon('approve')} Dispatch</button>
       </div>
     `);
     if(mekaniks.length>0){
@@ -1787,12 +1808,12 @@ async function confirmAdvance(woid, status){
   if(res.success){ toast('Status diperbarui ke '+status); closeModal(); closeDrawer(); renderWorkOrder(); } else toast(res.message,true);
 }
 
-/* ---- pembatalan WO setelah Vehicle Delivery, hanya oleh Manager, dgn pengembalian stok ---- */
-function openCancelModal(woid){
+/* ---- pembatalan WO abnormal di tahap manapun, hanya oleh Manager, dgn pengembalian stok kalau perlu ---- */
+function openCancelModal(woid, currentStatus){
   const actor = getActor();
   openModal(`
     <h3 style="margin:0 0 4px;">Batalkan Work Order</h3>
-    <p class="sub" style="margin:0 0 14px;">WO ${esc(woid)} sudah Vehicle Delivery. Pembatalan akan mengembalikan stok part yang sudah terpotong. Hanya role <b>Manager</b> yang bisa melakukan ini.</p>
+    <p class="sub" style="margin:0 0 14px;">WO ${esc(woid)} (status saat ini: <b>${esc(currentStatus||'-')}</b>) akan dibatalkan. Kalau ada part yang sudah terpotong (Material Picking), stoknya akan dikembalikan otomatis. Hanya role <b>Manager</b> yang bisa melakukan pembatalan abnormal seperti ini, di tahap manapun.</p>
     ${actor.role!=='Manager'?`<div class="danger-box">Anda login sebagai ${esc(actor.role)}, bukan Manager. Ganti pengguna aktif terlebih dahulu lewat pojok kanan atas.</div>`:''}
     <label>Alasan Pembatalan</label><textarea id="cancel_reason" placeholder="mis. Customer membatalkan servis, salah input, dll."></textarea>
     <div style="display:flex;justify-content:flex-end;gap:10px;">
