@@ -342,7 +342,7 @@ textarea{resize:vertical;min-height:60px;}
   <div class="login-card">
     <div class="login-logo" id="loginLogo">DMS</div>
     <h1>BW GROUP</h1>
-    <p class="sub">BW Auto Craft — Dealer Management System</p>
+    <p class="sub">Dealer Management System</p>
     <label>Pilih Nama Anda</label>
     <select id="login_user_select"></select>
     <label style="margin-top:10px;">Password</label>
@@ -434,13 +434,13 @@ const NAV = [
     {id:'karyawan', label:'Karyawan / Role', icon:'customer'},
   ]},
   {group:'Work Order', items:[
-    {id:'workorder', label:'Papan Kerja (Board)', icon:'wo'},
-    {id:'wo-new', label:'1. New', icon:'wo'},
-    {id:'wo-dispatching', label:'2. Dispatching', icon:'wo'},
-    {id:'wo-picking', label:'3. Material Picking', icon:'wo'},
-    {id:'wo-completed', label:'4. Completed', icon:'wo'},
-    {id:'wo-invoice', label:'5. Invoice', icon:'wo'},
-    {id:'wo-delivery', label:'6. Vehicle Delivery', icon:'wo'},
+    {id:'workorder', label:'Create New Order (WO)', icon:'wo'},
+    {id:'wo-new', label:'New', icon:'wo'},
+    {id:'wo-dispatching', label:'Dispatching', icon:'wo'},
+    {id:'wo-picking', label:'Material Picking', icon:'wo'},
+    {id:'wo-completed', label:'Completed', icon:'wo'},
+    {id:'wo-invoice', label:'Invoice', icon:'wo'},
+    {id:'wo-delivery', label:'Vehicle Delivery', icon:'wo'},
   ]},
   {group:'Inventory Management', items:[
     {id:'po-created', label:'Pengajuan PO', icon:'po'},
@@ -1108,9 +1108,12 @@ async function renderPartMaster(){
   const data = res.data||[];
   window.__parts = data;
   const lowCount = data.filter(p=>Number(p.StokAkhir)<=Number(p.StokMinimum)).length;
+  const actor = getActor();
+  const canEdit = actor.role==='Super Admin';
   setMain(`
     <div class="page-head"><div><h2>Part Master</h2><p>Master data sparepart & stok real-time (${data.length} part, ${lowCount} stok rendah)</p></div>
-      <button class="btn" onclick="formPart()">${icon('plus')} Tambah Part</button></div>
+      ${canEdit ? `<button class="btn" onclick="formPart()">${icon('plus')} Tambah Part</button>` : ''}</div>
+    ${!canEdit ? `<div class="warn-box" style="margin-bottom:12px;">Part Master hanya bisa diubah oleh akun <b>Super Admin</b>. Anda login sebagai <b>${esc(actor.role)}</b> - tampilan di bawah hanya untuk dilihat (read-only).</div>` : ''}
     <div class="panel">${dataTable({
       id:'part', rows:data, searchKeys:['PartNumber','PartName','Kategori'],
       columns:[
@@ -1119,12 +1122,14 @@ async function renderPartMaster(){
         {key:'StokAkhir', label:'Stok', numeric:true, render:p=>Number(p.StokAkhir)<=Number(p.StokMinimum)?`<span class="badge critical"><span class="dot"></span>${p.StokAkhir}</span>`:p.StokAkhir},
         {key:'StokMinimum', label:'Min', numeric:true}
       ],
-      rowActions:p=>`<button class="btn ghost sm" onclick='formPart(${JSON.stringify(p)})'>${icon('edit')} Edit</button>`
+      rowActions: canEdit ? (p=>`<button class="btn ghost sm" onclick='formPart(${JSON.stringify(p)})'>${icon('edit')} Edit</button>`) : undefined
     })}</div>
   `);
   initTable('part');
 }
 function formPart(p){
+  const actor = getActor();
+  if(actor.role!=='Super Admin'){ toast('Hanya akun Super Admin yang boleh menambah/mengubah Part Master', true); return; }
   p = p || {};
   const isEdit = !!p.PartNumber;
   openDrawer(
@@ -1173,10 +1178,12 @@ function formPart(p){
 }
 function setFieldValue(id, v){ const el = document.getElementById(id); if(el) el.value = v; }
 async function savePart(){
+  const actor = getActor();
+  if(actor.role!=='Super Admin'){ toast('Hanya akun Super Admin yang boleh menambah/mengubah Part Master', true); return; }
   const payload = { PartNumber:val('f_pn'), PartName:val('f_pname'), Kategori:val('f_kat'), Satuan:val('f_satuan'),
     HargaBeli:val('f_hbeli'), HargaJual:val('f_hjual'), StokMinimum:val('f_stokmin'), StokAwal:val('f_stokawal'), Lokasi:val('f_lokasi'),
     DealerCode:val('f_dealercode'), DealerName:val('f_dealername'), Status:val('f_status'), Locked: val('f_locked')==='true',
-    SuggestPrice:val('f_suggestprice'), ClaimPrice:val('f_claimprice') };
+    SuggestPrice:val('f_suggestprice'), ClaimPrice:val('f_claimprice'), ActorRole:actor.role, ActorName:actor.name };
   const res = await apiPost('savePart', payload);
   if(res.success){ toast('Part tersimpan'); closeDrawer(); renderPartMaster(); } else toast(res.message,true);
 }
@@ -1186,8 +1193,11 @@ async function renderInventoryMaster(){
   setMain(skeletonRows(4));
   const res = await apiGet('getInventoryMaster');
   const data = res.data||[];
+  const actor = getActor();
+  const canEdit = actor.role==='Super Admin';
   setMain(`
     <div class="page-head"><div><h2>Inventory Master</h2><p>Daftar lengkap stok, harga, dan pergerakan terakhir tiap part (${data.length} part)</p></div></div>
+    ${!canEdit ? `<div class="warn-box" style="margin-bottom:12px;">Inventory Master hanya bisa diubah oleh akun <b>Super Admin</b>. Anda login sebagai <b>${esc(actor.role)}</b> - tampilan di bawah hanya untuk dilihat (read-only).</div>` : ''}
     ${filterBarHtml('invmaster', [
       {key:'Status', label:'Status', options:['Active','Inactive']},
       {key:'DealerName', label:'Dealer', options:[...new Set(data.map(p=>p.DealerName).filter(Boolean))]}
@@ -1209,7 +1219,7 @@ async function renderInventoryMaster(){
         {key:'LastStockIn', label:'Last Stock In', render:p=>p.LastStockIn?fmtDate(p.LastStockIn):'-'},
         {key:'LastStockOut', label:'Last Stock Out', render:p=>p.LastStockOut?fmtDate(p.LastStockOut):'-'}
       ],
-      rowActions:p=>`<button class="btn ghost sm" onclick='formPart(${JSON.stringify(p)})'>${icon('edit')} Edit</button>`
+      rowActions: canEdit ? (p=>`<button class="btn ghost sm" onclick='formPart(${JSON.stringify(p)})'>${icon('edit')} Edit</button>`) : undefined
     })}</div>
   `);
   initTable('invmaster');
