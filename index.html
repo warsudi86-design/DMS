@@ -310,7 +310,7 @@ textarea{resize:vertical;min-height:60px;}
   <div class="sidebar" id="sidebar">
     <div class="brand">
       <div class="logo" id="brandLogo">DMS</div>
-      <div class="brand-text"><h1>BW GROUP</h1><span>BW Autocraft - Service</span></div>
+      <div class="brand-text"><h1>BW GROUP</h1><span>BW Auto Craft</span></div>
       <button class="collapse-btn" onclick="toggleSidebar()" title="Collapse">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
       </button>
@@ -409,6 +409,10 @@ const NAV = [
     {id:'kartustok', label:'Kartu Stok', icon:'card'},
     {id:'stok-opname', label:'Stock Opname', icon:'approve'},
     {id:'part-loss', label:'Part Loss', icon:'warning'},
+  ]},
+  {group:'Laporan', items:[
+    {id:'report-revenue-gp', label:'Revenue vs GP', icon:'money'},
+    {id:'report-unit-entry', label:'Unit Entry', icon:'vehicle'},
   ]}
 ];
 function buildNav(){
@@ -666,7 +670,7 @@ function hBarChart(items, opts={}){
     inner += '<text class="hbar-value" font-size="11.5" font-weight="700" fill="var(--ink)"></text>';
   });
   const svg = '<svg class="hbar-svg" preserveAspectRatio="xMinYMin meet" style="overflow:visible;" width="100%">' + inner + '</svg>';
-  return { svg: svg, items: items, layout: {chartW:chartW, h:h, leftPad:leftPad, barH:barH, gap:gap, plotW:plotW, max:max} };
+  return { svg: svg, items: items, fmt: opts.fmt, layout: {chartW:chartW, h:h, leftPad:leftPad, barH:barH, gap:gap, plotW:plotW, max:max} };
 }
 function attachHBarChart(containerEl, chart){
   const svgEl = containerEl.querySelector('.hbar-svg');
@@ -685,7 +689,7 @@ function attachHBarChart(containerEl, chart){
     tracks[i].setAttribute('x', L.leftPad); tracks[i].setAttribute('y', y); tracks[i].setAttribute('width', L.plotW); tracks[i].setAttribute('height', L.barH);
     bars[i].setAttribute('x', L.leftPad); bars[i].setAttribute('y', y); bars[i].setAttribute('width', bw); bars[i].setAttribute('height', L.barH);
     bars[i].style.fill = 'var(--' + (it.colorVar||'s1') + ')';
-    values[i].setAttribute('x', L.leftPad+bw+8); values[i].setAttribute('y', y+L.barH/2+4); values[i].textContent = it.value;
+    values[i].setAttribute('x', L.leftPad+bw+8); values[i].setAttribute('y', y+L.barH/2+4); values[i].textContent = chart.fmt ? chart.fmt(it.value) : it.value;
   });
 }
 
@@ -827,7 +831,9 @@ const views = {
   'outbound-history': renderOutboundHistory,
   kartustok: renderKartuStok,
   'stok-opname': renderStockOpname,
-  'part-loss': renderPartLoss
+  'part-loss': renderPartLoss,
+  'report-revenue-gp': renderRevenueGPReport,
+  'report-unit-entry': renderUnitEntryReport
 };
 const main = document.getElementById('main');
 function setMain(html){ main.innerHTML = html; }
@@ -1410,7 +1416,12 @@ async function formWorkOrder(){
       </div>
       <div id="wo_sublet_list" class="chip-list"></div>
 
-      <div class="panel" style="margin-top:10px;background:var(--surface-2);"><div class="kv"><span>Estimasi Total</span><b id="wo_total_preview">Rp 0</b></div></div>
+      <label>Diskon (Rp)</label><input id="wo_diskon" type="number" value="0" oninput="renderWOLists()">
+      <div class="panel" style="margin-top:10px;background:var(--surface-2);">
+        <div class="kv"><span>Subtotal</span><b id="wo_subtotal_preview">Rp 0</b></div>
+        <div class="kv"><span>Diskon</span><b id="wo_diskon_preview">Rp 0</b></div>
+        <div class="kv"><span>Estimasi Total</span><b id="wo_total_preview">Rp 0</b></div>
+      </div>
     </div>
     <div class="drawer-foot"><button class="btn secondary" onclick="closeDrawer()">Batal</button>
     <button class="btn" onclick="submitWorkOrder()">Simpan Work Order</button></div>
@@ -1475,7 +1486,12 @@ function renderWOLists(){
   document.getElementById('wo_labor_list').innerHTML = woCart.labors.map((l,i)=>`<div class="chip">${esc(l.LaborName)} ×${l.Qty} — ${fmtMoneyFull(l.Harga*l.Qty)}<button onclick="removeWOLabor(${i})">&times;</button></div>`).join('') || '<span class="muted" style="font-size:12px;">Belum ada jasa.</span>';
   const subletListEl = document.getElementById('wo_sublet_list');
   if(subletListEl) subletListEl.innerHTML = woCart.sublets.map((s,i)=>`<div class="chip">${esc(s.SubletName)} ×${s.Qty} — ${fmtMoneyFull(s.HargaJual*s.Qty)}<button onclick="removeWOSublet(${i})">&times;</button></div>`).join('') || '<span class="muted" style="font-size:12px;">Belum ada sublet.</span>';
-  const total = woCart.parts.reduce((s,p)=>s+p.Harga*p.Qty,0) + woCart.labors.reduce((s,l)=>s+l.Harga*l.Qty,0) + woCart.sublets.reduce((s,x)=>s+x.HargaJual*x.Qty,0);
+  const subtotal = woCart.parts.reduce((s,p)=>s+p.Harga*p.Qty,0) + woCart.labors.reduce((s,l)=>s+l.Harga*l.Qty,0) + woCart.sublets.reduce((s,x)=>s+x.HargaJual*x.Qty,0);
+  const diskonEl = document.getElementById('wo_diskon');
+  const diskon = diskonEl ? (Number(diskonEl.value)||0) : 0;
+  const total = Math.max(0, subtotal - diskon);
+  const subtotalEl = document.getElementById('wo_subtotal_preview'); if(subtotalEl) subtotalEl.textContent = fmtMoneyFull(subtotal);
+  const diskonPreviewEl = document.getElementById('wo_diskon_preview'); if(diskonPreviewEl) diskonPreviewEl.textContent = fmtMoneyFull(diskon);
   const totalEl = document.getElementById('wo_total_preview'); if(totalEl) totalEl.textContent = fmtMoneyFull(total);
 }
 async function submitWorkOrder(){
@@ -1483,7 +1499,7 @@ async function submitWorkOrder(){
   if(!custId || !vehId){ toast('Pilih Customer / Kendaraan terlebih dahulu lewat kotak pencarian', true); return; }
   const payload = {
     CustomerID: custId, VehicleID: vehId, JenisWO: val('wo_jenis'),
-    SA: val('wo_sa'), KM: val('wo_km'), Keluhan: val('wo_keluhan'),
+    SA: val('wo_sa'), KM: val('wo_km'), Keluhan: val('wo_keluhan'), Diskon: val('wo_diskon'),
     parts: woCart.parts.map(p=>({PartNumber:p.PartNumber, Qty:p.Qty})),
     labors: woCart.labors.map(l=>({LaborCode:l.LaborCode, Qty:l.Qty})),
     sublets: woCart.sublets.map(s=>({SubletName:s.SubletName, Qty:s.Qty, HargaBeli:s.HargaBeli, HargaJual:s.HargaJual}))
@@ -1536,7 +1552,9 @@ async function viewWorkOrder(woid){
         ${(sublets||[]).map(s=>`<tr><td>${esc(s.SubletName)}</td><td>${s.Qty}</td><td>${fmtMoneyFull(s.HargaJual)}</td><td>${fmtMoneyFull(s.Subtotal)}</td></tr>`).join('') || `<tr><td colspan="4">${emptyState('Tidak ada sublet')}</td></tr>`}
       </table>
 
-      <div class="kv" style="font-size:15px;margin-top:8px;"><span>Total Work Order</span><b>${fmtMoneyFull(header.TotalWO)}</b></div>
+      <div class="kv" style="margin-top:8px;"><span>Subtotal (Part+Labor+Sublet)</span><b>${fmtMoneyFull(Number(header.TotalPart||0)+Number(header.TotalLabor||0)+Number(header.TotalSublet||0))}</b></div>
+      ${Number(header.Diskon||0)>0?`<div class="kv"><span>Diskon</span><b>- ${fmtMoneyFull(header.Diskon)}</b></div>`:''}
+      <div class="kv" style="font-size:15px;margin-top:4px;"><span>Total Work Order</span><b>${fmtMoneyFull(header.TotalWO)}</b></div>
       ${!editable && header.Status!=='Cancelled' ? `<p class="sub" style="margin-top:8px;">ℹ WO sudah masuk status Invoice, tidak bisa ditambah item lagi.</p>`:''}
       ${noParts && header.Status==='Dispatching' ? `<p class="sub" style="margin-top:8px;">ℹ WO ini tidak ada part, jadi tahap Material Picking (Part Staff) otomatis dilewati — langsung ke Completed.</p>`:''}
     </div>
@@ -1623,8 +1641,9 @@ async function openAdvanceModal(woid, fromStatus, toStatus){
     const ures = await apiGet('listUsers');
     const mekaniks = (ures.data||[]).filter(u=>u.Role==='Mekanik' && !(u.Active===false||u.Active==='FALSE'));
     openModal(`
-      <h3 style="margin:0 0 4px;">Dispatching — Pilih Mekanik</h3>
-      <p class="sub" style="margin:0 0 14px;">WO ${esc(woid)} akan ditugaskan ke mekanik berikut.</p>
+      <h3 style="margin:0 0 4px;">Dispatching — Persetujuan Manager</h3>
+      <p class="sub" style="margin:0 0 14px;">WO ${esc(woid)} akan ditugaskan ke mekanik berikut. Dispatching WAJIB disetujui oleh akun Manager.</p>
+      ${actor.role!=='Manager' ? `<div class="warn-box">Aksi ini hanya untuk role <b>Manager</b> (persetujuan sebelum WO lanjut ke mekanik). Anda login sebagai ${esc(actor.role)}.</div>`:''}
       ${mekaniks.length===0? `<div class="warn-box">Belum ada karyawan dengan role Mekanik. Tambahkan lewat menu Karyawan / Role, atau ketik nama manual di bawah.</div>
       <label>Nama Mekanik</label><input id="disp_mekanik_manual" placeholder="Nama mekanik">` : `
       <label>Mekanik</label>${comboSearchHtml('disp_mekanik_combo','Cari nama mekanik...')}`}
@@ -1725,7 +1744,9 @@ async function renderWOStage(status){
   const data = (res.data||[]).filter(w=>w.Status===status).sort((a,b)=>new Date(b.CreatedAt)-new Date(a.CreatedAt));
   const tblId = 'wostage_'+status.replace(/\s+/g,'');
   setMain(`
-    <div class="page-head"><div><h2>Work Order — ${esc(status)}</h2><p>${WO_STAGE_DESC[status]||''} (${data.length} WO)</p></div></div>
+    <div class="page-head"><div><h2>Work Order — ${esc(status)}</h2><p>${WO_STAGE_DESC[status]||''} (${data.length} WO)</p></div>
+      ${status==='Vehicle Delivery'?`<button class="btn" onclick="exportVehicleDeliveryExcel()">${icon('history')} Export ke Excel (CSV)</button>`:''}
+    </div>
     ${filterBarHtml(tblId, [
       {key:'JenisWO', label:'Jenis WO', options:[...new Set(data.map(w=>w.JenisWO).filter(Boolean))]},
       {key:'Mekanik', label:'Mekanik', options:[...new Set(data.map(w=>w.Mekanik).filter(Boolean))]}
@@ -1743,6 +1764,41 @@ async function renderWOStage(status){
     })}</div>
   `);
   initTable(tblId);
+}
+
+// Export Excel (CSV) untuk Vehicle Delivery: satu baris per item (Part/Labor/Sublet) per WO,
+// lengkap dari tanggal, No WO, customer, part, labor, sublet, mekanik, sampai total nilai.
+async function exportVehicleDeliveryExcel(){
+  toast('Menyiapkan data export...');
+  const res = await apiGet('getVehicleDeliveryExport', {});
+  if(!res.success){ toast(res.message||'Gagal mengambil data export', true); return; }
+  const rows = res.data||[];
+  if(rows.length===0){ toast('Belum ada data Vehicle Delivery untuk di-export.', true); return; }
+  const headers = ['Tgl WO','Tgl Vehicle Delivery','No WO','Nama Customer','No Polisi','Jenis WO','Tipe Item','Nama Item','No Part','Qty','Harga','Subtotal','Mekanik','SA','Diskon','Total WO'];
+  const csvRows = [headers.join(',')];
+  rows.forEach(r=>{
+    const line = [
+      fmtDate(r.TglWO), fmtDate(r.TglVehicleDelivery), r.WOID, r.NamaCustomer, r.NoPolisi, r.JenisWO,
+      r.ItemType, r.ItemName, r.PartNumber, r.Qty, r.Harga, r.Subtotal, r.Mekanik, r.SA, r.Diskon, r.TotalWO
+    ].map(csvEscape);
+    csvRows.push(line.join(','));
+  });
+  const csvContent = '﻿' + csvRows.join('\r\n'); // BOM supaya Excel baca UTF-8 dengan benar
+  const blob = new Blob([csvContent], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'Vehicle_Delivery_Export_' + Utilities_todayStr() + '.csv';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  toast(rows.length+' baris data berhasil di-export.');
+}
+function csvEscape(v){
+  const s = (v===undefined||v===null) ? '' : String(v);
+  return /[",\r\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
+}
+function Utilities_todayStr(){
+  const d = new Date();
+  return d.getFullYear()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0');
 }
 
 /* ---- cetak / preview WO & Invoice sebagai PDF (browser print, logo BW Group) ---- */
@@ -1825,6 +1881,10 @@ async function printWorkOrder(woid){
     ${(sublets||[]).length ? `<table><tr><th>Sublet</th><th class="num">Qty</th><th class="num">Harga</th><th class="num">Subtotal</th></tr>
       ${sublets.map(s=>`<tr><td>${esc(s.SubletName)}</td><td class="num">${s.Qty}</td><td class="num">${fmtMoneyFull(s.HargaJual)}</td><td class="num">${fmtMoneyFull(s.Subtotal)}</td></tr>`).join('')}
     </table>`:''}
+    ${Number(header.Diskon||0)>0?`<div class="print-grid" style="grid-template-columns:1fr;text-align:right;">
+      <div style="display:flex;justify-content:flex-end;gap:18px;"><span>Subtotal</span><b>${fmtMoneyFull(Number(header.TotalPart||0)+Number(header.TotalLabor||0)+Number(header.TotalSublet||0))}</b></div>
+      <div style="display:flex;justify-content:flex-end;gap:18px;"><span>Diskon</span><b>- ${fmtMoneyFull(header.Diskon)}</b></div>
+    </div>`:''}
     <div class="print-total">Total Work Order: ${fmtMoneyFull(header.TotalWO)}</div>
     <div class="print-sign">
       <div class="box"><div class="line"></div>Mekanik<br>(${esc(header.Mekanik)||'-'})</div>
@@ -1842,9 +1902,11 @@ async function printInvoice(woid){
   if(['Invoice','Vehicle Delivery'].indexOf(header.Status)===-1){
     toast('Invoice hanya bisa dicetak setelah WO berstatus Invoice.', true); return;
   }
-  const subtotal = parts.reduce((s,p)=>s+Number(p.Subtotal||0),0)
+  const rawSubtotal = parts.reduce((s,p)=>s+Number(p.Subtotal||0),0)
     + labors.reduce((s,l)=>s+Number(l.Subtotal||0),0)
     + (sublets||[]).reduce((s,x)=>s+Number(x.Subtotal||0),0);
+  const diskon = Number(header.Diskon||0);
+  const subtotal = Number(header.TotalWO||0); // subtotal setelah diskon - jadi basis PPN
   const PPN_RATE = 0.11;
   const body = `
     <div class="print-grid">
@@ -1866,7 +1928,9 @@ async function printInvoice(woid){
       </label>
     </div>
     <div class="print-grid" style="grid-template-columns:1fr;text-align:right;">
-      <div style="display:flex;justify-content:flex-end;gap:18px;"><span>Subtotal</span><b id="inv_subtotal_label">-</b></div>
+      <div style="display:flex;justify-content:flex-end;gap:18px;"><span>Subtotal (Part+Labor+Sublet)</span><b>${fmtMoneyFull(rawSubtotal)}</b></div>
+      ${diskon>0?`<div style="display:flex;justify-content:flex-end;gap:18px;"><span>Diskon</span><b>- ${fmtMoneyFull(diskon)}</b></div>`:''}
+      <div style="display:flex;justify-content:flex-end;gap:18px;"><span>Subtotal Setelah Diskon</span><b id="inv_subtotal_label">-</b></div>
       <div id="inv_ppn_row" style="display:none;justify-content:flex-end;gap:18px;"><span>PPN (11%)</span><b id="inv_ppn_label">-</b></div>
     </div>
     <div class="print-total">TOTAL INVOICE: <span id="inv_grand_total">-</span></div>
@@ -2304,12 +2368,13 @@ async function loadKartuStok(){
 // Konsep: snapshot stok sistem (dari Inventory Master) dibandingkan hasil hitung fisik gudang.
 // Selisih (lebih/kurang) saat finalisasi otomatis jadi transaksi penyeimbang di Stock Ledger
 // dan dicatat sebagai jejak audit di menu Part Loss.
+const OPNAME_STATUS_BADGE = {Draft:'warn', 'Menunggu Persetujuan':'serious', Selesai:'good', Ditolak:'critical'};
 async function renderStockOpname(){
   setMain(skeletonRows(3));
   const res = await apiGet('listOpname');
   const data = res.data||[];
   setMain(`
-    <div class="page-head"><div><h2>Stock Opname</h2><p>Hitung fisik stok gudang vs stok sistem. Selisih otomatis menyesuaikan stok & tercatat di Part Loss (${data.length} sesi)</p></div>
+    <div class="page-head"><div><h2>Stock Opname</h2><p>Hitung fisik stok gudang vs stok sistem. Selisih baru menyesuaikan stok & masuk Stock Ledger setelah disetujui Manager di menu Part Loss (${data.length} sesi)</p></div>
       <button class="btn" onclick="startOpname()">${icon('plus')} Buat Opname Baru</button></div>
     <div class="panel">${dataTable({
       id:'opname', rows:data, searchKeys:['OpnameID','DibuatOleh'],
@@ -2317,7 +2382,7 @@ async function renderStockOpname(){
         {key:'OpnameID', label:'Opname ID', render:o=>`<span class="link-id" onclick="viewOpname('${o.OpnameID}')">${esc(o.OpnameID)}</span>`},
         {key:'TglOpname', label:'Tgl Dibuat', render:o=>fmtDate(o.TglOpname)},
         {key:'DibuatOleh', label:'Dibuat Oleh', render:o=>esc(o.DibuatOleh||'-')},
-        {key:'Status', label:'Status', render:o=>statusBadge(o.Status, {Draft:'warn', Selesai:'good'})},
+        {key:'Status', label:'Status', render:o=>statusBadge(o.Status, OPNAME_STATUS_BADGE)},
         {key:'TglSelesai', label:'Tgl Selesai', render:o=>o.TglSelesai?fmtDate(o.TglSelesai):'-'}
       ],
       rowActions:o=>`<button class="btn ghost sm" onclick="viewOpname('${o.OpnameID}')">Detail</button>`
@@ -2333,23 +2398,30 @@ async function startOpname(){
 }
 async function viewOpname(opnameId){
   setMain(skeletonRows(4));
-  const res = await apiGet('getOpname', {id:opnameId});
-  if(!res.success){ toast(res.message,true); return; }
-  const {header, details} = res.data;
+  const [ores, lres] = await Promise.all([apiGet('getOpname', {id:opnameId}), apiGet('listPartLoss')]);
+  if(!ores.success){ toast(ores.message,true); return; }
+  const {header, details} = ores.data;
+  const lossRows = (lres.data||[]).filter(r=>r.OpnameID===opnameId);
   window.__opnameDetails = details;
   window.__currentOpnameId = opnameId;
+  const actor = getActor();
   const isDraft = header.Status === 'Draft';
+  const isPending = header.Status === 'Menunggu Persetujuan';
   setMain(`
     <div class="page-head"><div><h2>Stock Opname — ${esc(opnameId)}</h2>
-      <p>Status: ${statusBadge(header.Status,{Draft:'warn',Selesai:'good'})} · Dibuat oleh ${esc(header.DibuatOleh)||'-'} · ${fmtDate(header.TglOpname)}</p></div>
+      <p>Status: ${statusBadge(header.Status, OPNAME_STATUS_BADGE)} · Dibuat oleh ${esc(header.DibuatOleh)||'-'} · ${fmtDate(header.TglOpname)}</p></div>
       <div style="display:flex;gap:8px;">
         <button class="btn secondary" onclick="renderStockOpname()">&larr; Kembali</button>
         ${isDraft?`<button class="btn" onclick="submitOpnameCount()">Simpan Progress</button>
-        <button class="btn good" onclick="doFinalizeOpname('${opnameId}')">Finalisasi &amp; Sesuaikan Stok</button>`:''}
+        <button class="btn good" onclick="doFinalizeOpname('${opnameId}')">Ajukan untuk Persetujuan</button>`:''}
+        ${isPending && actor.role==='Manager' ? `<button class="btn critical" onclick="doApprovePartLoss('${opnameId}','Reject')">Tolak</button>
+        <button class="btn good" onclick="doApprovePartLoss('${opnameId}','Approve')">${icon('approve')} Setujui &amp; Sesuaikan Stok</button>`:''}
       </div>
     </div>
+    ${isPending && actor.role!=='Manager' ? `<div class="warn-box">Opname ini sedang menunggu persetujuan Manager sebelum stok di Inventory Master benar-benar disesuaikan.</div>`:''}
+    ${header.Status==='Ditolak' ? `<div class="danger-box">⚠ Opname ini DITOLAK oleh ${esc(header.DisetujuiOleh||'-')} pada ${fmtDate(header.TglDisetujui)}. Stok tidak berubah. ${header.AlasanTolak?('Alasan: '+esc(header.AlasanTolak)):''}</div>`:''}
     <div class="panel">
-      <p class="sub" style="margin-top:-4px;">${isDraft?'Isi Qty Fisik hasil hitung gudang untuk tiap part. Selisih dihitung otomatis (Fisik - Sistem).':'Opname ini sudah difinalisasi dan tidak bisa diubah lagi.'}</p>
+      <p class="sub" style="margin-top:-4px;">${isDraft?'Isi Qty Fisik hasil hitung gudang untuk tiap part. Selisih dihitung otomatis (Fisik - Sistem).':(isPending?'Hasil hitung sudah dikunci, menunggu persetujuan Manager (lihat kolom Selisih di bawah).':'Opname ini sudah final dan tidak bisa diubah lagi.')}</p>
       <div style="overflow-x:auto;"><table><tr><th>Part</th><th class="num">Qty Sistem</th><th class="num">Qty Fisik</th><th class="num">Selisih</th><th>Keterangan</th></tr>
       ${details.map((d,i)=>`<tr>
         <td>${esc(d.PartNumber)} - ${esc(d.PartName)}</td>
@@ -2360,6 +2432,13 @@ async function viewOpname(opnameId){
       </tr>`).join('')}
       </table></div>
     </div>
+    ${lossRows.length>0?`<div class="panel">
+      <h3 style="font-size:13.5px;margin:0 0 8px;">Usulan Part Loss dari Opname ini</h3>
+      <table><tr><th>Part</th><th class="num">Selisih</th><th>Tipe</th><th>Status</th><th>Oleh</th></tr>
+      ${lossRows.map(r=>`<tr><td>${esc(r.PartNumber)} - ${esc(r.PartName)}</td><td class="num">${r.Selisih>0?'+':''}${r.Selisih}</td><td>${esc(r.Tipe)}</td>
+        <td>${statusBadge(r.Status,{'Pending Approval':'warn',Approved:'good',Rejected:'critical'})}</td><td>${esc(r.ApprovedBy||r.CreatedBy||'-')}</td></tr>`).join('')}
+      </table>
+    </div>`:''}
   `);
   if(isDraft){
     details.forEach((d,i)=>{
@@ -2373,6 +2452,16 @@ async function viewOpname(opnameId){
     });
   }
 }
+async function doApprovePartLoss(opnameId, keputusan){
+  const actor = getActor();
+  if(actor.role!=='Manager'){ toast('Hanya akun Manager yang bisa menyetujui/menolak Part Loss.', true); return; }
+  let alasan = '';
+  if(keputusan==='Reject'){
+    alasan = prompt('Alasan penolakan (opsional):') || '';
+  } else if(!confirm('Setujui penyesuaian stok ini? Stok di Inventory Master akan langsung berubah mengikuti hasil opname.')) return;
+  const res = await apiPost('approvePartLoss', { OpnameID: opnameId, Keputusan: keputusan, Alasan: alasan, ActorRole: actor.role, ActorName: actor.name||'' });
+  if(res.success){ toast(keputusan==='Approve'?'Disetujui, stok sudah disesuaikan.':'Ditolak, stok tidak berubah.'); viewOpname(opnameId); } else toast(res.message,true);
+}
 async function submitOpnameCount(){
   const details = window.__opnameDetails||[];
   const items = details.map((d,i)=>({
@@ -2383,11 +2472,14 @@ async function submitOpnameCount(){
   if(res.success){ toast(items.length+' data tersimpan.'); } else toast(res.message,true);
 }
 async function doFinalizeOpname(opnameId){
-  if(!confirm('Finalisasi opname ini? Stok sistem akan disesuaikan mengikuti hasil fisik dan TIDAK BISA diubah lagi setelah ini. Pastikan semua Qty Fisik sudah benar.')) return;
+  if(!confirm('Ajukan hasil opname ini untuk persetujuan Manager? Setelah diajukan, hasil hitung terkunci (tidak bisa diubah). Stok BELUM berubah sampai Manager menyetujui. Pastikan semua Qty Fisik sudah benar.')) return;
   await submitOpnameCount();
   const actor = getActor();
   const res = await apiPost('finalizeOpname', { OpnameID: opnameId, ActorRole: actor.role, ActorName: actor.name||'' });
-  if(res.success){ toast('Opname difinalisasi. '+res.jumlahSelisih+' part disesuaikan (lihat menu Part Loss).'); viewOpname(opnameId); } else toast(res.message,true);
+  if(res.success){
+    toast(res.butuhPersetujuan ? (res.jumlahSelisih+' part ada selisih, diajukan untuk persetujuan Manager.') : 'Tidak ada selisih, opname langsung selesai.');
+    viewOpname(opnameId);
+  } else toast(res.message,true);
 }
 
 /* ================= PART LOSS ================= */
@@ -2395,10 +2487,12 @@ async function renderPartLoss(){
   setMain(skeletonRows(4));
   const res = await apiGet('listPartLoss');
   const data = res.data||[];
+  const pendingCount = data.filter(r=>r.Status==='Pending Approval').length;
   setMain(`
-    <div class="page-head"><div><h2>Part Loss</h2><p>Jejak audit penyeimbang stok (selisih lebih/kurang) hasil finalisasi Stock Opname (${data.length} catatan)</p></div></div>
+    <div class="page-head"><div><h2>Part Loss</h2><p>Usulan penyeimbang stok (selisih lebih/kurang) hasil Stock Opname — stok baru berubah setelah disetujui Manager (${data.length} catatan, ${pendingCount} menunggu persetujuan)</p></div></div>
     ${filterBarHtml('partloss', [
-      {key:'Tipe', label:'Tipe', options:['Selisih Lebih','Selisih Kurang (Loss)']}
+      {key:'Tipe', label:'Tipe', options:['Selisih Lebih','Selisih Kurang (Loss)']},
+      {key:'Status', label:'Status', options:['Pending Approval','Approved','Rejected']}
     ], 'CreatedAt')}
     <div class="panel">${dataTable({
       id:'partloss', rows:data, searchKeys:['PartNumber','PartName','OpnameID'],
@@ -2410,11 +2504,123 @@ async function renderPartLoss(){
         {key:'QtyFisik', label:'Qty Fisik', numeric:true},
         {key:'Selisih', label:'Selisih', numeric:true, render:r=>`<span class="badge ${r.Selisih>0?'good':'critical'}"><span class="dot"></span>${r.Selisih>0?'+':''}${r.Selisih}</span>`},
         {key:'Tipe', label:'Tipe'},
-        {key:'CreatedBy', label:'Oleh', render:r=>esc(r.CreatedBy||'-')}
-      ]
+        {key:'Status', label:'Status', render:r=>statusBadge(r.Status,{'Pending Approval':'warn',Approved:'good',Rejected:'critical'})},
+        {key:'ApprovedBy', label:'Disetujui/Ditolak Oleh', render:r=>esc(r.ApprovedBy||'-')}
+      ],
+      rowActions:r=>`<button class="btn ghost sm" onclick="viewOpname('${r.OpnameID}')">Lihat Opname</button>`
     })}</div>
   `);
   initTable('partloss');
+}
+
+/* ================= LAPORAN: REVENUE VS GP ================= */
+// Catatan metodologi: Revenue = Total WO (sudah bersih diskon) pada WO berstatus Invoice/Vehicle Delivery.
+// COGS didekati dari Qty Part x Cost Price TERKINI (moving average) + Qty Sublet x Harga Beli vendor.
+// Labor dianggap tanpa COGS (murni margin jasa). Pendekatan ini praktis karena histori cost per transaksi
+// tidak disimpan terpisah - kalau butuh akurasi penuh, Cost Price perlu direkam per baris WO saat WO dibuat.
+async function renderRevenueGPReport(){
+  setMain(skeletonRows(4));
+  setMain(`
+    <div class="page-head"><div><h2>Revenue vs Gross Profit</h2><p>Revenue = Total WO setelah diskon. GP = Revenue - estimasi COGS (Part x Cost Price + Sublet x Harga Beli). Labor dianggap tanpa COGS.</p></div></div>
+    <div class="panel" style="margin-bottom:12px;">
+      <div class="row-line" style="flex-wrap:wrap;gap:10px;align-items:flex-end;">
+        <div><label style="font-size:11px;display:block;">Dari Tanggal</label><input type="date" id="rgp_from" style="width:150px;"></div>
+        <div><label style="font-size:11px;display:block;">Ke Tanggal</label><input type="date" id="rgp_to" style="width:150px;"></div>
+        <button class="btn secondary sm" onclick="loadRevenueGPReport()">Terapkan Filter</button>
+        <button class="btn ghost sm" onclick="setFieldValue('rgp_from','');setFieldValue('rgp_to','');loadRevenueGPReport();">Reset</button>
+      </div>
+    </div>
+    <div id="rgp_result"></div>
+  `);
+  loadRevenueGPReport();
+}
+async function loadRevenueGPReport(){
+  const el = document.getElementById('rgp_result');
+  el.innerHTML = skeletonRows(3);
+  const res = await apiGet('getRevenueGPReport', {from: val('rgp_from'), to: val('rgp_to')});
+  if(!res.success){ el.innerHTML = `<div class="panel">${emptyState(res.message)}</div>`; return; }
+  const {rows, monthly, totals} = res.data;
+  const barItems = [];
+  monthly.forEach(m=>{
+    barItems.push({label: m.month+' - Revenue', value: Math.round(m.revenue), colorVar:'s1'});
+    barItems.push({label: m.month+' - GP', value: Math.round(m.gp), colorVar:'s3'});
+  });
+  el.innerHTML = `
+    <div class="cards">
+      <div class="stat-card"><div class="label">Total Revenue</div><div class="value">${fmtMoney(totals.revenue)}</div></div>
+      <div class="stat-card"><div class="label">Estimasi COGS</div><div class="value">${fmtMoney(totals.cogs)}</div></div>
+      <div class="stat-card"><div class="label">Gross Profit</div><div class="value">${fmtMoney(totals.gp)}</div></div>
+      <div class="stat-card"><div class="label">GP Margin</div><div class="value">${totals.margin.toFixed(1)}%</div></div>
+    </div>
+    ${barItems.length>0?`<div class="panel"><h3 style="font-size:13.5px;">Revenue vs GP per Bulan</h3><div id="rgp_bar"></div></div>`:''}
+    <div class="panel">
+      ${rows.length===0 ? emptyState('Belum ada WO yang diinvoice pada rentang ini.') : `<div style="overflow-x:auto;"><table><tr><th>No WO</th><th>Tgl Invoice</th><th>Customer</th><th class="num">Revenue</th><th class="num">COGS</th><th class="num">GP</th><th class="num">Margin</th></tr>
+      ${rows.map(r=>`<tr><td><span class="link-id" onclick="viewWorkOrder('${r.WOID}')">${esc(r.WOID)}</span></td><td>${fmtDate(r.TglInvoice)}</td><td>${esc(r.NamaCustomer)}</td>
+        <td class="num">${fmtMoneyFull(r.Revenue)}</td><td class="num">${fmtMoneyFull(r.COGS)}</td><td class="num">${fmtMoneyFull(r.GP)}</td><td class="num">${r.Margin.toFixed(1)}%</td></tr>`).join('')}
+      </table></div>`}
+    </div>
+  `;
+  if(barItems.length>0){
+    const bc = hBarChart(barItems, {fmt:fmtMoney});
+    const barEl = document.getElementById('rgp_bar');
+    barEl.innerHTML = bc.svg;
+    attachHBarChart(barEl, bc);
+    attachBarTooltip(barEl, barItems.map(it=>({label:it.label, value:fmtMoneyFull(it.value)})));
+  }
+}
+
+/* ================= LAPORAN: UNIT ENTRY (VIN UNIK PER HARI) ================= */
+// Kendaraan (No Rangka/VIN) yang sama, masuk WO di hari yang SAMA, hanya dihitung SATU kali sebagai
+// Unit Entry - meski tercatat lebih dari satu Work Order pada hari itu (mis. WO susulan/tambahan).
+async function renderUnitEntryReport(){
+  setMain(skeletonRows(4));
+  setMain(`
+    <div class="page-head"><div><h2>Unit Entry (VIN Unik per Hari)</h2><p>Kendaraan dengan No Rangka (VIN) sama yang masuk di hari yang sama dihitung sebagai SATU Unit Entry.</p></div></div>
+    <div class="panel" style="margin-bottom:12px;">
+      <div class="row-line" style="flex-wrap:wrap;gap:10px;align-items:flex-end;">
+        <div><label style="font-size:11px;display:block;">Dari Tanggal</label><input type="date" id="ue_from" style="width:150px;"></div>
+        <div><label style="font-size:11px;display:block;">Ke Tanggal</label><input type="date" id="ue_to" style="width:150px;"></div>
+        <button class="btn secondary sm" onclick="loadUnitEntryReport()">Terapkan Filter</button>
+        <button class="btn ghost sm" onclick="setFieldValue('ue_from','');setFieldValue('ue_to','');loadUnitEntryReport();">Reset</button>
+      </div>
+    </div>
+    <div id="ue_result"></div>
+  `);
+  loadUnitEntryReport();
+}
+async function loadUnitEntryReport(){
+  const el = document.getElementById('ue_result');
+  el.innerHTML = skeletonRows(3);
+  const res = await apiGet('getUnitEntryReport', {from: val('ue_from'), to: val('ue_to')});
+  if(!res.success){ el.innerHTML = `<div class="panel">${emptyState(res.message)}</div>`; return; }
+  const {uniqueEntries, monthly, totalUniqueEntries, totalWOTercatat, totalDuplikatHariSama} = res.data;
+  el.innerHTML = `
+    <div class="cards">
+      <div class="stat-card"><div class="label">Total Unit Entry (Unik)</div><div class="value">${totalUniqueEntries}</div></div>
+      <div class="stat-card"><div class="label">Total WO Tercatat</div><div class="value">${totalWOTercatat}</div></div>
+      <div class="stat-card"><div class="label">Tidak Dihitung Ganda</div><div class="value">${totalDuplikatHariSama}</div></div>
+    </div>
+    ${monthly.length>1?`<div class="panel"><h3 style="font-size:13.5px;">Tren Unit Entry per Bulan</h3><div id="ue_line"></div></div>`:''}
+    <div class="panel">${dataTable({
+      id:'unitentry', rows:uniqueEntries, searchKeys:['VIN','NoPolisi','NamaCustomer'],
+      columns:[
+        {key:'TglMasuk', label:'Tgl Masuk', render:e=>fmtDate(e.TglMasuk)},
+        {key:'NoPolisi', label:'No Polisi'}, {key:'VIN', label:'No Rangka (VIN)'},
+        {key:'NamaCustomer', label:'Customer'},
+        {key:'WOIDs', label:'Jumlah WO', numeric:true, render:e=>e.WOIDs.length===1
+          ? `<span class="link-id" onclick="viewWorkOrder('${e.WOIDs[0]}')">${esc(e.WOIDs[0])}</span>`
+          : `<span class="badge muted" title="${e.WOIDs.map(esc).join(', ')}"><span class="dot"></span>${e.WOIDs.length} WO</span>`}
+      ]
+    })}</div>
+  `;
+  initTable('unitentry');
+  if(monthly.length>1){
+    const lc = lineChart(monthly.map(m=>m.month), monthly.map(m=>m.count));
+    const lineEl = document.getElementById('ue_line');
+    lineEl.innerHTML = lc.svg;
+    attachLineChart(lineEl, lc);
+    attachLineTooltip(lineEl, lc.pts);
+  }
 }
 
 /* ================= GLOBAL SEARCH (shortcut ke Kartu Stok / WO / PO) ================= */
