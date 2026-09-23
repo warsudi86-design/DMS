@@ -37,10 +37,14 @@ body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;backgrou
 
 /* ---------- SIDEBAR ---------- */
 .sidebar{width:242px;flex-shrink:0;background:var(--sb-bg);backdrop-filter:blur(10px);
-  border-right:1px solid var(--sb-border);padding:18px 12px;position:sticky;top:0;height:100vh;
-  overflow-y:auto;transition:width .2s ease;}
+  border-right:1px solid var(--sb-border);position:sticky;top:0;height:100vh;
+  display:flex;flex-direction:column;transition:width .2s ease;}
 .sidebar.collapsed{width:72px;}
-.sidebar.collapsed .label,.sidebar.collapsed .nav-title,.sidebar.collapsed .brand-text{display:none;}
+.sidebar.collapsed .label,.sidebar.collapsed .nav-title,.sidebar.collapsed .brand-text,.sidebar.collapsed .sidebar-footer .label{display:none;}
+.sidebar-scroll{flex:1;min-height:0;overflow-y:auto;padding:18px 12px;}
+.sidebar-footer{flex-shrink:0;padding:10px 12px 16px;border-top:1px solid var(--sb-border);}
+.sidebar-footer .nav-item{color:var(--sb-ink-muted);}
+.sidebar-footer .nav-item:hover{background:var(--sb-hover);color:var(--sb-ink);}
 .brand{display:flex;align-items:center;gap:10px;margin-bottom:20px;padding:4px 6px;}
 .brand .logo{width:38px;height:38px;border-radius:11px;flex-shrink:0;
   background:linear-gradient(135deg,var(--brand),var(--brand-2));display:flex;align-items:center;
@@ -123,9 +127,10 @@ body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;backgrou
 
 table{width:100%;border-collapse:collapse;font-size:13px;}
 th,td{padding:10px 10px;text-align:left;border-bottom:1px solid var(--border);}
-th{color:var(--ink-muted);font-weight:700;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;
+th{background:var(--surface-3);color:var(--ink-2);font-weight:700;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;
   cursor:pointer;user-select:none;white-space:nowrap;}
-th:hover{color:var(--ink);}
+th:first-child{border-top-left-radius:8px;} th:last-child{border-top-right-radius:8px;}
+th:hover{color:var(--ink);background:var(--border-strong);}
 th .sort-arrow{font-size:9px;margin-left:3px;opacity:.6;}
 tbody tr{transition:.1s;}
 tbody tr:hover td{background:rgba(20,30,55,.035);}
@@ -359,14 +364,22 @@ textarea{resize:vertical;min-height:60px;}
 </div>
 <div class="app" id="appRoot" style="display:none;">
   <div class="sidebar" id="sidebar">
-    <div class="brand">
-      <div class="logo" id="brandLogo">DMS</div>
-      <div class="brand-text"><h1>BW GROUP</h1><span>BW Auto Craft</span></div>
-      <button class="collapse-btn" onclick="toggleSidebar()" title="Collapse">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
-      </button>
+    <div class="sidebar-scroll">
+      <div class="brand">
+        <div class="logo" id="brandLogo">DMS</div>
+        <div class="brand-text"><h1>BW GROUP</h1><span>BW Auto Craft</span></div>
+        <button class="collapse-btn" onclick="toggleSidebar()" title="Collapse">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
+      </div>
+      <div class="nav-group" id="navGroup"></div>
     </div>
-    <div class="nav-group" id="navGroup"></div>
+    <div class="sidebar-footer">
+      <div class="nav-item" data-view="guide" title="Panduan Penggunaan" onclick="openGuide()">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+        <span class="label">Panduan Penggunaan</span>
+      </div>
+    </div>
   </div>
 
   <div class="main">
@@ -918,10 +931,171 @@ const views = {
   'stok-opname': renderStockOpname,
   'part-loss': renderPartLoss,
   'report-revenue-gp': renderRevenueGPReport,
-  'report-unit-entry': renderUnitEntryReport
+  'report-unit-entry': renderUnitEntryReport,
+  guide: renderGuide
 };
+// Item "Panduan Penggunaan" ada di footer sidebar (di luar NAV/privilege), jadi selalu terlihat semua role.
+function openGuide(){
+  document.querySelectorAll('.nav-item').forEach(i=>i.classList.remove('active'));
+  document.querySelector('[data-view="guide"]').classList.add('active');
+  document.getElementById('pageTitle').textContent = 'Panduan Penggunaan';
+  document.getElementById('crumb').textContent = 'DMS / Panduan Penggunaan';
+  document.getElementById('sidebar').classList.remove('mobile-open');
+  renderGuide();
+}
 const main = document.getElementById('main');
 function setMain(html){ main.innerHTML = html; }
+
+/* ================= PANDUAN PENGGUNAAN (ringkasan alur DMS, isi sama dengan README.md) ================= */
+function guideFlow(text){ return `<pre style="white-space:pre-wrap;font-family:ui-monospace,Consolas,monospace;font-size:12.5px;line-height:1.6;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;overflow-x:auto;margin:0 0 16px;">${esc(text)}</pre>`; }
+function renderGuide(){
+  setMain(`
+    <div class="page-head"><div><h2>Panduan Penggunaan DMS</h2><p>Konsep & alur sistem per menu - referensi cepat, bukan pengganti training langsung</p></div></div>
+
+    <div class="panel">
+      <h3>1. Login &amp; Role</h3>
+      <p style="font-size:13px;line-height:1.7;">Pilih nama Anda &amp; isi password di halaman depan. Role yang ada: <b>SA, Mekanik, Part Staff, Kasir, Manager, Super Admin</b>.</p>
+      <ul style="font-size:13px;line-height:1.9;padding-left:18px;margin:0;">
+        <li><b>Super Admin</b>: akses semua menu, satu-satunya yang boleh mengatur Privilege Menu, mengubah Part Master/Inventory Master, dan membuat akun Super Admin lain.</li>
+        <li><b>Manager</b>: bisa approve diskon WO &gt;10%, membatalkan WO, dan approve Stock Opname/Part Loss - tapi TIDAK bisa mengubah Part Master/Inventory Master maupun Privilege Menu (khusus Super Admin).</li>
+        <li>Ganti pengguna harus <b>Logout</b> (ikon ⏻ di kanan atas) lalu login ulang dengan password - tidak ada cara pindah role tanpa password.</li>
+        <li><b>Lupa password</b>: minta Manager/Super Admin klik "Reset Password" di menu Karyawan/Role. Kalau Super Admin sendiri yang lupa, satu-satunya jalan adalah mengosongkan cell Password di Google Sheet "Users" langsung.</li>
+      </ul>
+    </div>
+
+    <div class="panel">
+      <h3>2. Master Data</h3>
+      <table><thead><tr><th>Menu</th><th>Fungsi</th><th>Siapa yang boleh edit</th></tr></thead><tbody>
+        <tr><td>Customer</td><td>Data pelanggan</td><td>Semua role yang punya akses menu ini</td></tr>
+        <tr><td>Vehicle</td><td>Data kendaraan (terhubung ke Customer)</td><td>Semua role yang punya akses menu ini</td></tr>
+        <tr><td>Part Master</td><td>Master sparepart: harga, stok minimum, lokasi rak</td><td><b>Hanya Super Admin</b></td></tr>
+        <tr><td>Labor Master</td><td>Master jasa/labor & estimasi waktu</td><td>Semua role yang punya akses menu ini</td></tr>
+        <tr><td>Karyawan / Role</td><td>Daftar user, reset password, Privilege Menu</td><td>Tambah/edit user: siapa saja yang punya akses. Privilege &amp; Role Super Admin: <b>hanya Super Admin</b></td></tr>
+      </tbody></table>
+    </div>
+
+    <div class="panel">
+      <h3>3. Alur Work Order (WO)</h3>
+      ${guideFlow(
+`[SA] Create New Order (WO)
+      | isi customer, vehicle, part/jasa/sublet, diskon (jika ada)
+      v
+ Status: NEW  --------------------------------------------------+
+      | SA pilih Mekanik -> Dispatching                          |
+      | * jika diskon > 10% dari subtotal: HARUS disetujui        |  [Manager/Super Admin]
+      |   Manager dulu (approve diskon) sebelum bisa Dispatching  |  bisa BATALKAN WO dari
+      v                                                           |  status manapun (kondisi
+ Status: DISPATCHING (mekanik mulai kerjakan unit)                |  abnormal). Tombol ini
+      | Part Staff serahkan part ke mekanik -> klik "Record"      |  TIDAK muncul untuk role
+      |   (stok otomatis terpotong, masuk Outbound History)       |  lain.
+      | * selama belum Completed, SA masih boleh tambah           |
+      |   Part / Jasa / Sublet sesuai kebutuhan                   |
+      v                                                           |
+ Status: MATERIAL PICKING                                        |
+      | SA klik "Completed" setelah semua pekerjaan selesai       |
+      v                                                           |
+ Status: COMPLETED (WO terkunci, tidak bisa tambah item lagi)     |
+      | Kasir cetak Invoice                                       |
+      v                                                           |
+ Status: INVOICE                                                 |
+      | SA klik "Delivery" (serah terima unit ke customer)        |
+      v                                                           |
+ Status: VEHICLE DELIVERY (WO selesai)  <------------------------+`
+      )}
+      <p style="font-size:13px;line-height:1.7;margin:0;">Submenu <b>New / Dispatching / Material Picking / Completed / Invoice / Vehicle Delivery</b> di sidebar = daftar WO yang sedang di masing-masing status tsb, supaya tiap role fokus ke tahap kerjanya.</p>
+    </div>
+
+    <div class="panel">
+      <h3>4. Alur Purchasing Order (PO)</h3>
+      ${guideFlow(
+`Pengajuan PO  ->  Status: PO Created
+      v
+[Manager/Super Admin] Approval PO  ->  Status: Approval PO (atau Rejected jika ditolak)
+      v
+PO Submit Order  ->  Status: PO Submit Order (PO resmi dikirim ke supplier)
+      v
+Penerimaan Part (barang fisik datang, dicocokkan dgn PO)
+      ->  status jadi Received / Partial Received
+      v
+Sign In (Isi Rak)  (part dimasukkan ke rak/lokasi penyimpanan)
+      ->  stok di Inventory Master resmi bertambah, tercatat di Inbound History
+      v
+Part siap dipakai di Work Order / Outbound`
+      )}
+    </div>
+
+    <div class="panel">
+      <h3>5. Alur Inventory Management (di luar PO)</h3>
+      <ul style="font-size:13px;line-height:1.9;padding-left:18px;margin:0 0 14px;">
+        <li><b>Inbound Part</b>: pencatatan stok masuk manual (di luar alur PO resmi), misal penyesuaian/retur.</li>
+        <li><b>Inventory Master</b>: tampilan lengkap stok & harga tiap part (read-only untuk semua role kecuali Super Admin - datanya sama dengan Part Master).</li>
+        <li><b>Outbound Part</b>: pencatatan stok keluar manual (di luar pemakaian WO).</li>
+        <li><b>Inbound History / Outbound History</b>: riwayat semua pergerakan stok (termasuk otomatis dari WO & PO).</li>
+        <li><b>Kartu Stok</b>: mutasi stok per part (bin card digital) untuk audit satu per satu part.</li>
+        <li><b>Stock Opname</b>: hitung fisik stok gudang vs sistem - selisih masuk ke Part Loss untuk approval Manager.</li>
+      </ul>
+      ${guideFlow(`Stock Opname (hitung fisik) -> ada selisih? -> Part Loss (approval Manager) -> Inventory Master ter-update`)}
+    </div>
+
+    <div class="panel">
+      <h3>6. Privilege Menu (Karyawan / Role)</h3>
+      <ul style="font-size:13px;line-height:1.9;padding-left:18px;margin:0;">
+        <li><b>Default per Role</b>: berlaku untuk semua orang dengan role tsb.</li>
+        <li><b>Override per Orang</b>: kalau ada 2+ orang dengan role sama tapi aksesnya beda (misal 2 SA), Super Admin bisa atur privilege khusus 1 orang tanpa mengubah default role-nya.</li>
+        <li>Menu yang belum pernah diatur = otomatis TERLIHAT (allow-by-default).</li>
+        <li>Role <b>Super Admin</b> selalu penuh akses, tidak bisa dibatasi.</li>
+      </ul>
+    </div>
+
+    <div class="panel">
+      <h3>7. Laporan</h3>
+      <ul style="font-size:13px;line-height:1.9;padding-left:18px;margin:0;">
+        <li><b>Revenue vs GP</b>: perbandingan pendapatan & gross profit per periode.</li>
+        <li><b>Unit Entry</b>: rekap unit kendaraan masuk servis per periode.</li>
+      </ul>
+    </div>
+
+    <div class="panel">
+      <h3>8. Peta Menu Sidebar (ringkas)</h3>
+      ${guideFlow(
+`Dashboard
+Master Data
+ |- Customer
+ |- Vehicle
+ |- Part Master        (edit: Super Admin saja)
+ |- Labor Master
+ \`- Karyawan / Role    (privilege & reset password: Super Admin saja)
+Work Order
+ |- Create New Order (WO)
+ |- New
+ |- Dispatching
+ |- Material Picking
+ |- Completed
+ |- Invoice
+ \`- Vehicle Delivery
+Purchasing Order
+ |- Pengajuan PO
+ |- Approval PO
+ \`- PO Submit Order
+Inventory Management
+ |- Penerimaan Part
+ |- Sign In (Isi Rak)
+ |- Inbound Part
+ |- Inventory Master   (edit: Super Admin saja)
+ |- Outbound Part
+ |- Inbound History
+ |- Outbound History
+ |- Kartu Stok
+ |- Stock Opname
+ \`- Part Loss
+Laporan
+ |- Revenue vs GP
+ \`- Unit Entry`
+      )}
+      <p class="sub" style="margin:0;">Dokumen lengkap juga tersedia di file <b>README.md</b> pada source code project ini.</p>
+    </div>
+  `);
+}
 
 /* ================= DASHBOARD ================= */
 async function renderDashboard(period){
