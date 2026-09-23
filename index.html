@@ -101,14 +101,16 @@ body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;backgrou
 .btn svg{width:15px;height:15px;}
 .btn:hover{filter:brightness(1.12);transform:translateY(-1px);}
 .btn:disabled{opacity:.4;cursor:not-allowed;transform:none;}
-.btn.secondary{background:var(--surface-2);border:1px solid var(--border-strong);}
+.btn.secondary{background:#dde1e8;border:1px solid var(--border-strong);color:var(--ink);}
+.btn.secondary:hover{background:#cfd4dd;}
 .btn.good{background:linear-gradient(135deg,#0ca30c,#0a8a0a);}
 .btn.accent{background:linear-gradient(135deg,#0a8f0a,#0c7a3f);color:#fff;}
 .btn.outline{background:var(--surface);border:1.5px solid var(--brand);color:var(--brand);}
 .btn.outline:hover{background:rgba(47,111,214,.08);}
 .btn.critical{background:linear-gradient(135deg,#d03b3b,#a92e2e);}
 .btn.sm{padding:6px 11px;font-size:12px;border-radius:8px;}
-.btn.ghost{background:transparent;border:1px solid var(--border-strong);color:var(--ink-2);}
+.btn.ghost{background:var(--surface-3);border:1px solid var(--border-strong);color:var(--ink-2);}
+.btn.ghost:hover{background:var(--border-strong);color:var(--ink);}
 
 .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:20px;}
 .stat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:17px 18px;
@@ -592,6 +594,15 @@ function fmtDate(d){ if(!d) return '-'; const dt = new Date(d); return isNaN(dt)
 function timeAgo(d){ if(!d) return ''; const s = (Date.now()-new Date(d).getTime())/1000; if(s<60) return 'baru saja'; if(s<3600) return Math.floor(s/60)+' menit lalu'; if(s<86400) return Math.floor(s/3600)+' jam lalu'; return Math.floor(s/86400)+' hari lalu'; }
 function val(id){ const e = document.getElementById(id); return e ? e.value : ''; }
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+// Parsing angka yang toleran: field harga di Google Sheet kadang pernah diedit manual sebagai TEKS
+// (mis. "Rp 150.000"), yang bikin Number() bawaan salah baca (Number("150.000")=150, Number("Rp 150.000")=NaN).
+// Uang di sistem ini selalu Rupiah bulat tanpa desimal, jadi aman buang semua karakter non-digit lalu parse.
+function parseMoneyLoose(v){
+  if(typeof v==='number') return v;
+  if(v==null || v==='') return 0;
+  const digits = String(v).replace(/[^0-9]/g,'');
+  return digits ? Number(digits) : 0;
+}
 
 /* status -> slot kategorikal (urutan tetap, konsisten dgn alur bisnis) */
 const WO_STATUS_SLOT = {'New':'s1','Dispatching':'s2','Material Picking':'s4','Completed':'s6','Invoice':'s5','Vehicle Delivery':'s3'};
@@ -743,7 +754,10 @@ function attachComboSearch(id, items, opts){
     const q = input.value.trim().toLowerCase();
     hidden.value = '';
     if(!q){ list.style.display='none'; return; }
-    renderList(items.filter(it=> opts.searchText(it).toLowerCase().includes(q)));
+    // String(...||'') sengaja dipakai (bukan langsung .toLowerCase()) supaya kalau ada 1 baris data yang
+    // field pencariannya kosong/undefined (mis. data lama/tidak lengkap di sheet), pencarian TIDAK error
+    // dan berhenti total untuk semua item lain - cukup baris itu saja yang tidak match.
+    renderList((items||[]).filter(it=> String(opts.searchText(it)||'').toLowerCase().includes(q)));
   });
   input.addEventListener('focus', function(){ if(input.value.trim()) input.dispatchEvent(new Event('input')); });
   input.addEventListener('blur', function(){ setTimeout(()=>{ list.style.display='none'; }, 150); });
@@ -1880,6 +1894,11 @@ async function formWorkOrder(){
             <div class="kv"><span>Subtotal (Kotor)</span><b id="wo_subtotal_preview">Rp 0</b></div>
             <div class="kv"><span>Total Diskon</span><b id="wo_diskon_preview">Rp 0</b></div>
             <div class="kv"><span>Estimasi Total</span><b id="wo_total_preview">Rp 0</b></div>
+            <label class="priv-chk" style="margin:10px 0 0;width:100%;box-sizing:border-box;justify-content:flex-start;">
+              <input type="checkbox" id="wo_ppn_toggle" onchange="renderWOLists()"> Kenakan PPN 11%
+            </label>
+            <div class="kv" id="wo_ppn_row" style="display:none;"><span>PPN (11%)</span><b id="wo_ppn_preview">Rp 0</b></div>
+            <div class="kv" id="wo_grandtotal_row" style="display:none;border-top:1px dashed var(--border);padding-top:9px;margin-top:2px;"><span><b>Total Dibayar Customer</b></span><b id="wo_grandtotal_preview" style="font-size:15px;">Rp 0</b></div>
           </div>
           <p class="sub" style="margin:8px 0 2px;">Rasio Diskon: <b id="wo_diskon_ratio_text">0%</b></p>
           <div class="disc-ratio-bar" id="wo_diskon_ratio_bar"><div style="width:0%"></div></div>
@@ -2014,6 +2033,17 @@ function renderWOLists(){
   const subtotalEl = document.getElementById('wo_subtotal_preview'); if(subtotalEl) subtotalEl.textContent = fmtMoneyFull(subtotal);
   const diskonPreviewEl = document.getElementById('wo_diskon_preview'); if(diskonPreviewEl) diskonPreviewEl.textContent = fmtMoneyFull(totalDiskon);
   const totalEl = document.getElementById('wo_total_preview'); if(totalEl) totalEl.textContent = fmtMoneyFull(total);
+  // PPN 11% di sini murni PREVIEW untuk memperjelas estimasi nilai yang harus dibayar customer saat
+  // pembuatan WO - basisnya total setelah diskon. Belum final; penetapan PPN yang resmi tetap dilakukan
+  // Kasir saat cetak Invoice (bisa dicentang lagi di sana), jadi tidak mempengaruhi TotalWO yang tersimpan.
+  const ppnToggleEl = document.getElementById('wo_ppn_toggle');
+  const ppnOn = !!(ppnToggleEl && ppnToggleEl.checked);
+  const ppnAmount = ppnOn ? Math.round(total*0.11) : 0;
+  const grandTotal = total + ppnAmount;
+  const ppnRowEl = document.getElementById('wo_ppn_row'); if(ppnRowEl) ppnRowEl.style.display = ppnOn?'flex':'none';
+  const ppnPreviewEl = document.getElementById('wo_ppn_preview'); if(ppnPreviewEl) ppnPreviewEl.textContent = fmtMoneyFull(ppnAmount);
+  const gtRowEl = document.getElementById('wo_grandtotal_row'); if(gtRowEl) gtRowEl.style.display = ppnOn?'flex':'none';
+  const gtEl = document.getElementById('wo_grandtotal_preview'); if(gtEl) gtEl.textContent = fmtMoneyFull(grandTotal);
   const ratioTextEl = document.getElementById('wo_diskon_ratio_text'); if(ratioTextEl) ratioTextEl.textContent = (ratio*100).toFixed(1)+'%';
   const ratioBarEl = document.getElementById('wo_diskon_ratio_bar');
   if(ratioBarEl){
@@ -2577,9 +2607,10 @@ async function renderPOCreated(){
 async function formPO(){
   const pres = await apiGet('listPart');
   const allParts = pres.data||[];
-  // Hanya part yang sudah punya Harga Beli di Part Master yang bisa di-PO-kan.
-  // Part yang belum terdaftar / belum ada Harga Beli tidak bisa dipilih untuk PO.
-  window.__parts = allParts.filter(p=>Number(p.HargaBeli)>0);
+  // Hanya part yang sudah punya Harga Beli di Part Master yang bisa di-PO-kan. Pakai parseMoneyLoose
+  // (bukan Number() polos) supaya part yang Harga Beli-nya pernah diketik manual di sheet dengan format
+  // teks (mis. "Rp 150.000") tetap terbaca benar, bukan malah dianggap "belum punya harga".
+  window.__parts = allParts.filter(p=>parseMoneyLoose(p.HargaBeli)>0);
   const skippedCount = allParts.length - window.__parts.length;
   poCart = [];
   openDrawer(`
@@ -2591,7 +2622,7 @@ async function formPO(){
       </div>
       <label>Catatan</label><textarea id="po_catatan"></textarea>
       <h3 style="font-size:13.5px;">Detail Part</h3>
-      ${skippedCount>0?`<p style="font-size:11.5px;color:#b45309;margin:0 0 6px;">⚠ ${skippedCount} part disembunyikan dari daftar karena belum punya Harga Beli di Part Master. Lengkapi dulu di menu Part Master.</p>`:''}
+      ${skippedCount>0?`<p style="font-size:11.5px;color:#8a5f00;margin:0 0 6px;">⚠ ${skippedCount} part disembunyikan dari daftar karena belum punya Harga Beli di Part Master. Lengkapi dulu di menu Part Master.</p>`:''}
       ${window.__parts.length===0?`<p class="muted" style="font-size:12px;">Belum ada part dengan Harga Beli terdaftar. Tambahkan Harga Beli di Part Master dulu.</p>`:`
       <div class="row-line">
         <select id="po_part_select" style="flex:2" onchange="updatePOPartHargaPreview()">${window.__parts.map(p=>`<option value="${p.PartNumber}">${esc(p.PartNumber)} - ${esc(p.PartName)}</option>`).join('')}</select>
@@ -2601,31 +2632,50 @@ async function formPO(){
       </div>
       <p style="font-size:11px;color:#666;margin:2px 0 0;">Harga otomatis mengikuti Harga Beli di Part Master (tidak bisa diubah manual di sini).</p>
       `}
-      <div id="po_part_list" class="chip-list"></div>
+      <div id="po_part_list"></div>
       <div class="panel" style="margin-top:6px;background:var(--surface-2);"><div class="kv"><span>Estimasi Total PO</span><b id="po_total_preview">Rp 0</b></div></div>
     </div>
     <div class="drawer-foot"><button class="btn secondary" onclick="closeDrawer()">Batal</button>
     <button class="btn" onclick="submitPO()">Simpan PO</button></div>
-  `);
+  `, true);
   if(window.__parts.length>0) updatePOPartHargaPreview();
+  renderPOCart();
 }
 function updatePOPartHargaPreview(){
   const pn = val('po_part_select');
   const part = window.__parts.find(p=>p.PartNumber===pn);
   const el = document.getElementById('po_part_harga_preview');
-  if(el) el.textContent = part ? fmtMoneyFull(part.HargaBeli) : '-';
+  if(el) el.textContent = part ? fmtMoneyFull(parseMoneyLoose(part.HargaBeli)) : '-';
 }
 function addPOPart(){
   const pn = val('po_part_select'); const qty = Number(val('po_part_qty'))||1;
   const part = window.__parts.find(p=>p.PartNumber===pn);
-  if(!part || !(Number(part.HargaBeli)>0)){ toast('Part ini belum punya Harga Beli di Part Master, tidak bisa dimasukkan ke PO.', true); return; }
-  const harga = Number(part.HargaBeli);
+  const harga = part ? parseMoneyLoose(part.HargaBeli) : 0;
+  if(!part || harga<=0){ toast('Part ini belum punya Harga Beli di Part Master, tidak bisa dimasukkan ke PO.', true); return; }
   poCart.push({PartNumber:pn, PartName:part.PartName, QtyOrder:qty, HargaSatuan:harga});
   renderPOCart();
 }
 function removePOPart(i){ poCart.splice(i,1); renderPOCart(); }
+// Daftar item PO dalam bentuk tabel (No, Part Number, Part Name, Qty Order, Harga, Total Harga).
 function renderPOCart(){
-  document.getElementById('po_part_list').innerHTML = poCart.map((p,i)=>`<div class="chip">${esc(p.PartName)} ×${p.QtyOrder} — ${fmtMoneyFull(p.HargaSatuan*p.QtyOrder)}<button onclick="removePOPart(${i})">&times;</button></div>`).join('') || '<span class="muted" style="font-size:12px;">Belum ada part.</span>';
+  const box = document.getElementById('po_part_list');
+  if(!box) return;
+  if(!poCart.length){ box.innerHTML = '<span class="muted" style="font-size:12px;">Belum ada part.</span>'; }
+  else{
+    box.innerHTML = `<div style="border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:12px;">
+      <table style="margin:0;"><thead><tr><th>No</th><th>Part Number</th><th>Part Name</th><th>Qty Order</th><th>Harga</th><th>Total Harga</th><th></th></tr></thead><tbody>
+      ${poCart.map((p,i)=>`<tr>
+        <td class="num">${i+1}</td>
+        <td>${esc(p.PartNumber)}</td>
+        <td>${esc(p.PartName)}</td>
+        <td class="num">${p.QtyOrder}</td>
+        <td class="num">${fmtMoneyFull(p.HargaSatuan)}</td>
+        <td class="num"><b>${fmtMoneyFull(p.HargaSatuan*p.QtyOrder)}</b></td>
+        <td><button class="btn ghost sm" onclick="removePOPart(${i})" title="Hapus">&times;</button></td>
+      </tr>`).join('')}
+      </tbody></table>
+    </div>`;
+  }
   const total = poCart.reduce((s,p)=>s+p.HargaSatuan*p.QtyOrder,0);
   const el = document.getElementById('po_total_preview'); if(el) el.textContent = fmtMoneyFull(total);
 }
@@ -2655,20 +2705,58 @@ async function viewPO(ponumber){
         ${header.NoOrderSupplier ? `<div class="kv"><span>No Order Supplier</span><b>${esc(header.NoOrderSupplier)}</b></div>`:''}
         ${header.TglSubmitOrder ? `<div class="kv"><span>Tgl Submit Order</span><b>${fmtDate(header.TglSubmitOrder)}</b></div>`:''}
       </div>
-      <table><tr><th>Part</th><th>Qty Order</th><th>Qty Diterima</th><th>Harga</th><th>Subtotal</th></tr>
-        ${details.map(d=>`<tr><td>${esc(d.PartName)}</td><td>${d.QtyOrder}</td><td>${d.QtyDiterima||0}</td><td>${fmtMoneyFull(d.HargaSatuan)}</td><td>${fmtMoneyFull(d.Subtotal)}</td></tr>`).join('')}
-      </table>
+      <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:12px;">
+        <table style="margin:0;"><thead><tr><th>No</th><th>Part Number</th><th>Part Name</th><th>Qty Order</th><th>Qty Diterima</th><th>Harga</th><th>Total Harga</th></tr></thead><tbody>
+        ${details.map((d,i)=>`<tr>
+          <td class="num">${i+1}</td>
+          <td>${esc(d.PartNumber)}</td>
+          <td>${esc(d.PartName)}</td>
+          <td class="num">${d.QtyOrder}</td>
+          <td class="num">${d.QtyDiterima||0}</td>
+          <td class="num">${fmtMoneyFull(d.HargaSatuan)}</td>
+          <td class="num"><b>${fmtMoneyFull(d.Subtotal)}</b></td>
+        </tr>`).join('')}
+        </tbody></table>
+      </div>
       <div class="kv" style="font-size:15px;"><span>Total PO</span><b>${fmtMoneyFull(header.TotalPO)}</b></div>
       ${header.Catatan ? `<p class="sub">Catatan: ${esc(header.Catatan)}</p>`:''}
     </div>
     <div class="drawer-foot">
       <button class="btn secondary" onclick="closeDrawer()">Tutup</button>
       <div style="display:flex;gap:8px;">
+        <button class="btn outline" onclick="printPO('${header.PONumber}')">🖨 Cetak PO (PDF)</button>
         ${header.Status==='Approval PO' ? `<button class="btn good" onclick="doSubmitPOOrder('${header.PONumber}')">${icon('approve')} Submit Order</button>`:''}
         ${header.Status==='Received' ? `<button class="btn ghost" onclick="openEditPOModal('${header.PONumber}')">${icon('edit')} Edit PO</button>`:''}
       </div>
     </div>
-  `);
+  `, true);
+}
+// Cetak PO sebagai halaman siap-PDF (sama seperti Cetak Form WO / Invoice) - dipakai untuk dikirim ke supplier.
+async function printPO(ponumber){
+  const res = await apiGet('getPO', {id:ponumber});
+  if(!res.success){ toast(res.message,true); return; }
+  const {header, details} = res.data;
+  const body = `
+    <div class="print-grid">
+      <div><span>No. PO</span><b>${esc(header.PONumber)}</b></div>
+      <div><span>Tanggal PO</span><b>${fmtDate(header.TglPO)}</b></div>
+      <div><span>Supplier</span><b>${esc(header.Supplier)}</b></div>
+      <div><span>Status</span><b>${esc(header.Status)}</b></div>
+      <div><span>Requested By</span><b>${esc(header.RequestedBy)||'-'}</b></div>
+      <div><span>Approved By</span><b>${esc(header.ApprovedBy)||'-'}</b></div>
+      ${header.NoOrderSupplier ? `<div><span>No Order Supplier</span><b>${esc(header.NoOrderSupplier)}</b></div>`:''}
+    </div>
+    <table><tr><th>No</th><th>Part Number</th><th>Part Name</th><th class="num">Qty Order</th><th class="num">Harga</th><th class="num">Total Harga</th></tr>
+      ${details.map((d,i)=>`<tr><td>${i+1}</td><td>${esc(d.PartNumber)}</td><td>${esc(d.PartName)}</td><td class="num">${d.QtyOrder}</td><td class="num">${fmtMoneyFull(d.HargaSatuan)}</td><td class="num">${fmtMoneyFull(d.Subtotal)}</td></tr>`).join('')}
+    </table>
+    <div class="print-total">TOTAL PO: ${fmtMoneyFull(header.TotalPO)}</div>
+    ${header.Catatan ? `<p style="font-size:12px;color:#444;"><b>Catatan:</b> ${esc(header.Catatan)}</p>`:''}
+    <div class="print-sign">
+      <div class="box"><div class="line"></div>Dibuat oleh<br>(${esc(header.RequestedBy)||'-'})</div>
+      <div class="box"><div class="line"></div>Disetujui oleh<br>(${esc(header.ApprovedBy)||'-'})</div>
+    </div>
+  `;
+  openPrintWindow(buildPrintDocument('PURCHASE ORDER', header.PONumber, body, getPrintCss()));
 }
 function openEditPOModal(ponumber){
   const header = window.__curPOHeader || {};
