@@ -39,7 +39,9 @@ body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;backgrou
 .brand{display:flex;align-items:center;gap:10px;margin-bottom:20px;padding:4px 6px;}
 .brand .logo{width:38px;height:38px;border-radius:11px;flex-shrink:0;
   background:linear-gradient(135deg,var(--brand),var(--brand-2));display:flex;align-items:center;
-  justify-content:center;font-weight:800;font-size:13px;box-shadow:0 4px 14px rgba(57,135,229,.35);}
+  justify-content:center;font-weight:800;font-size:13px;box-shadow:0 4px 14px rgba(57,135,229,.35);overflow:hidden;}
+.brand .logo.has-img{background:#fff;box-shadow:0 4px 14px rgba(0,0,0,.2);}
+.brand .logo img{width:100%;height:100%;object-fit:contain;}
 .brand-text h1{font-size:14px;margin:0;line-height:1.2;font-weight:700;}
 .brand-text span{display:block;font-size:10.5px;color:var(--ink-muted);margin-top:1px;}
 .collapse-btn{margin-left:auto;background:none;border:none;color:var(--ink-muted);cursor:pointer;padding:4px;
@@ -281,7 +283,7 @@ textarea{resize:vertical;min-height:60px;}
 /* ---------- cetak / print (WO & Invoice) ---------- */
 .print-page{background:#fff;color:#111;max-width:800px;margin:0 auto;padding:36px 40px;font-family:Arial,Helvetica,sans-serif;}
 .print-head{display:flex;align-items:center;gap:16px;border-bottom:3px solid #111;padding-bottom:14px;margin-bottom:18px;}
-.print-head .logo-box{width:64px;height:64px;border-radius:8px;background:#111;color:#fff;display:flex;align-items:center;
+.print-head .logo-box{width:64px;height:64px;border-radius:8px;background:transparent;color:#111;display:flex;align-items:center;
   justify-content:center;font-weight:800;font-size:12px;text-align:center;flex-shrink:0;overflow:hidden;}
 .print-head .logo-box img{width:100%;height:100%;object-fit:contain;}
 .print-head h1{margin:0;font-size:19px;}
@@ -307,8 +309,8 @@ textarea{resize:vertical;min-height:60px;}
 <div class="app">
   <div class="sidebar" id="sidebar">
     <div class="brand">
-      <div class="logo">DMS</div>
-      <div class="brand-text"><h1>DMS Integrasi</h1><span>Prima Wuling Aftersales</span></div>
+      <div class="logo" id="brandLogo">DMS</div>
+      <div class="brand-text"><h1>BW GROUP</h1><span>Prima Wuling Aftersales</span></div>
       <button class="collapse-btn" onclick="toggleSidebar()" title="Collapse">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
       </button>
@@ -405,6 +407,8 @@ const NAV = [
     {id:'inbound-history', label:'Inbound History', icon:'history'},
     {id:'outbound-history', label:'Outbound History', icon:'history'},
     {id:'kartustok', label:'Kartu Stok', icon:'card'},
+    {id:'stok-opname', label:'Stock Opname', icon:'approve'},
+    {id:'part-loss', label:'Part Loss', icon:'warning'},
   ]}
 ];
 function buildNav(){
@@ -438,8 +442,22 @@ function buildNav(){
   el.querySelector('[data-view="dashboard"]').classList.add('active');
 }
 function toggleSidebar(){ document.getElementById('sidebar').classList.toggle('collapsed'); }
+function initBrandLogo(){
+  const el = document.getElementById('brandLogo');
+  if(!el) return;
+  if(COMPANY.logoUrl){
+    el.classList.add('has-img');
+    el.innerHTML = '';
+    const img = document.createElement('img');
+    img.src = COMPANY.logoUrl; img.alt = COMPANY.name;
+    el.appendChild(img);
+  } else {
+    el.textContent = 'DMS';
+  }
+}
 buildNav();
 setActor(getActor());
+initBrandLogo();
 
 /* ================= HELPER API ================= */
 async function apiGet(action, params={}){
@@ -807,7 +825,9 @@ const views = {
   outbound: renderOutboundManual,
   'inbound-history': renderInboundHistory,
   'outbound-history': renderOutboundHistory,
-  kartustok: renderKartuStok
+  kartustok: renderKartuStok,
+  'stok-opname': renderStockOpname,
+  'part-loss': renderPartLoss
 };
 const main = document.getElementById('main');
 function setMain(html){ main.innerHTML = html; }
@@ -1756,7 +1776,7 @@ function getPrintCss(){
   return `
     .print-page{background:#fff;color:#111;max-width:800px;margin:0 auto;padding:36px 40px;font-family:Arial,Helvetica,sans-serif;}
     .print-head{display:flex;align-items:center;gap:16px;border-bottom:3px solid #111;padding-bottom:14px;margin-bottom:18px;}
-    .print-head .logo-box{width:64px;height:64px;border-radius:8px;background:#111;color:#fff;display:flex;align-items:center;
+    .print-head .logo-box{width:70px;height:70px;border-radius:8px;background:transparent;color:#111;display:flex;align-items:center;
       justify-content:center;font-weight:800;font-size:12px;text-align:center;flex-shrink:0;overflow:hidden;}
     .print-head .logo-box img{width:100%;height:100%;object-fit:contain;}
     .print-head h1{margin:0;font-size:19px;}
@@ -1900,7 +1920,12 @@ async function renderPOCreated(){
   initTable('po');
 }
 async function formPO(){
-  const pres = await apiGet('listPart'); window.__parts = pres.data||[];
+  const pres = await apiGet('listPart');
+  const allParts = pres.data||[];
+  // Hanya part yang sudah punya Harga Beli di Part Master yang bisa di-PO-kan.
+  // Part yang belum terdaftar / belum ada Harga Beli tidak bisa dipilih untuk PO.
+  window.__parts = allParts.filter(p=>Number(p.HargaBeli)>0);
+  const skippedCount = allParts.length - window.__parts.length;
   poCart = [];
   openDrawer(`
     <div class="drawer-head"><h3>Buat PO</h3><button class="drawer-close" onclick="closeDrawer()">&times;</button></div>
@@ -1911,23 +1936,35 @@ async function formPO(){
       </div>
       <label>Catatan</label><textarea id="po_catatan"></textarea>
       <h3 style="font-size:13.5px;">Detail Part</h3>
+      ${skippedCount>0?`<p style="font-size:11.5px;color:#b45309;margin:0 0 6px;">⚠ ${skippedCount} part disembunyikan dari daftar karena belum punya Harga Beli di Part Master. Lengkapi dulu di menu Part Master.</p>`:''}
+      ${window.__parts.length===0?`<p class="muted" style="font-size:12px;">Belum ada part dengan Harga Beli terdaftar. Tambahkan Harga Beli di Part Master dulu.</p>`:`
       <div class="row-line">
-        <select id="po_part_select" style="flex:2">${window.__parts.map(p=>`<option value="${p.PartNumber}">${esc(p.PartNumber)} - ${esc(p.PartName)}</option>`).join('')}</select>
+        <select id="po_part_select" style="flex:2" onchange="updatePOPartHargaPreview()">${window.__parts.map(p=>`<option value="${p.PartNumber}">${esc(p.PartNumber)} - ${esc(p.PartName)}</option>`).join('')}</select>
         <input id="po_part_qty" type="number" value="1" style="width:60px">
-        <input id="po_part_harga" type="number" placeholder="Harga" style="width:100px">
+        <span id="po_part_harga_preview" class="muted" style="font-size:12px;min-width:110px;white-space:nowrap;">-</span>
         <button class="btn secondary sm" onclick="addPOPart()">+ Add</button>
       </div>
+      <p style="font-size:11px;color:#666;margin:2px 0 0;">Harga otomatis mengikuti Harga Beli di Part Master (tidak bisa diubah manual di sini).</p>
+      `}
       <div id="po_part_list" class="chip-list"></div>
       <div class="panel" style="margin-top:6px;background:var(--surface-2);"><div class="kv"><span>Estimasi Total PO</span><b id="po_total_preview">Rp 0</b></div></div>
     </div>
     <div class="drawer-foot"><button class="btn secondary" onclick="closeDrawer()">Batal</button>
     <button class="btn" onclick="submitPO()">Simpan PO</button></div>
   `);
+  if(window.__parts.length>0) updatePOPartHargaPreview();
+}
+function updatePOPartHargaPreview(){
+  const pn = val('po_part_select');
+  const part = window.__parts.find(p=>p.PartNumber===pn);
+  const el = document.getElementById('po_part_harga_preview');
+  if(el) el.textContent = part ? fmtMoneyFull(part.HargaBeli) : '-';
 }
 function addPOPart(){
   const pn = val('po_part_select'); const qty = Number(val('po_part_qty'))||1;
   const part = window.__parts.find(p=>p.PartNumber===pn);
-  const harga = Number(val('po_part_harga')) || Number(part.HargaBeli) || 0;
+  if(!part || !(Number(part.HargaBeli)>0)){ toast('Part ini belum punya Harga Beli di Part Master, tidak bisa dimasukkan ke PO.', true); return; }
+  const harga = Number(part.HargaBeli);
   poCart.push({PartNumber:pn, PartName:part.PartName, QtyOrder:qty, HargaSatuan:harga});
   renderPOCart();
 }
@@ -2261,6 +2298,123 @@ async function loadKartuStok(){
     attachLineChart(ksLine, lc);
     attachLineTooltip(ksLine, lc.pts);
   }
+}
+
+/* ================= STOCK OPNAME ================= */
+// Konsep: snapshot stok sistem (dari Inventory Master) dibandingkan hasil hitung fisik gudang.
+// Selisih (lebih/kurang) saat finalisasi otomatis jadi transaksi penyeimbang di Stock Ledger
+// dan dicatat sebagai jejak audit di menu Part Loss.
+async function renderStockOpname(){
+  setMain(skeletonRows(3));
+  const res = await apiGet('listOpname');
+  const data = res.data||[];
+  setMain(`
+    <div class="page-head"><div><h2>Stock Opname</h2><p>Hitung fisik stok gudang vs stok sistem. Selisih otomatis menyesuaikan stok & tercatat di Part Loss (${data.length} sesi)</p></div>
+      <button class="btn" onclick="startOpname()">${icon('plus')} Buat Opname Baru</button></div>
+    <div class="panel">${dataTable({
+      id:'opname', rows:data, searchKeys:['OpnameID','DibuatOleh'],
+      columns:[
+        {key:'OpnameID', label:'Opname ID', render:o=>`<span class="link-id" onclick="viewOpname('${o.OpnameID}')">${esc(o.OpnameID)}</span>`},
+        {key:'TglOpname', label:'Tgl Dibuat', render:o=>fmtDate(o.TglOpname)},
+        {key:'DibuatOleh', label:'Dibuat Oleh', render:o=>esc(o.DibuatOleh||'-')},
+        {key:'Status', label:'Status', render:o=>statusBadge(o.Status, {Draft:'warn', Selesai:'good'})},
+        {key:'TglSelesai', label:'Tgl Selesai', render:o=>o.TglSelesai?fmtDate(o.TglSelesai):'-'}
+      ],
+      rowActions:o=>`<button class="btn ghost sm" onclick="viewOpname('${o.OpnameID}')">Detail</button>`
+    })}</div>
+  `);
+  initTable('opname');
+}
+async function startOpname(){
+  const actor = getActor();
+  if(!confirm('Buat sesi Stock Opname baru? Sistem akan snapshot stok semua part aktif saat ini sebagai acuan.')) return;
+  const res = await apiPost('createOpname', { DibuatOleh: actor.name||'' });
+  if(res.success){ toast('Opname '+res.id+' dibuat, '+res.jumlahPart+' part di-snapshot.'); viewOpname(res.id); } else toast(res.message,true);
+}
+async function viewOpname(opnameId){
+  setMain(skeletonRows(4));
+  const res = await apiGet('getOpname', {id:opnameId});
+  if(!res.success){ toast(res.message,true); return; }
+  const {header, details} = res.data;
+  window.__opnameDetails = details;
+  window.__currentOpnameId = opnameId;
+  const isDraft = header.Status === 'Draft';
+  setMain(`
+    <div class="page-head"><div><h2>Stock Opname — ${esc(opnameId)}</h2>
+      <p>Status: ${statusBadge(header.Status,{Draft:'warn',Selesai:'good'})} · Dibuat oleh ${esc(header.DibuatOleh)||'-'} · ${fmtDate(header.TglOpname)}</p></div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn secondary" onclick="renderStockOpname()">&larr; Kembali</button>
+        ${isDraft?`<button class="btn" onclick="submitOpnameCount()">Simpan Progress</button>
+        <button class="btn good" onclick="doFinalizeOpname('${opnameId}')">Finalisasi &amp; Sesuaikan Stok</button>`:''}
+      </div>
+    </div>
+    <div class="panel">
+      <p class="sub" style="margin-top:-4px;">${isDraft?'Isi Qty Fisik hasil hitung gudang untuk tiap part. Selisih dihitung otomatis (Fisik - Sistem).':'Opname ini sudah difinalisasi dan tidak bisa diubah lagi.'}</p>
+      <div style="overflow-x:auto;"><table><tr><th>Part</th><th class="num">Qty Sistem</th><th class="num">Qty Fisik</th><th class="num">Selisih</th><th>Keterangan</th></tr>
+      ${details.map((d,i)=>`<tr>
+        <td>${esc(d.PartNumber)} - ${esc(d.PartName)}</td>
+        <td class="num">${d.QtySystem}</td>
+        <td class="num">${isDraft?`<input type="number" id="opn_qty_${i}" style="width:80px;margin:0;text-align:right;" value="${d.QtyFisik!==''?d.QtyFisik:''}">`:d.QtyFisik}</td>
+        <td class="num" id="opn_selisih_${i}">${d.Selisih!==''?(d.Selisih>0?'+':'')+d.Selisih:'-'}</td>
+        <td>${isDraft?`<input id="opn_ket_${i}" style="margin:0;" value="${esc(d.Keterangan||'')}">`:esc(d.Keterangan||'-')}</td>
+      </tr>`).join('')}
+      </table></div>
+    </div>
+  `);
+  if(isDraft){
+    details.forEach((d,i)=>{
+      const qtyInput = document.getElementById('opn_qty_'+i);
+      if(qtyInput) qtyInput.addEventListener('input', ()=>{
+        const fisik = Number(qtyInput.value)||0;
+        const selisih = fisik - Number(d.QtySystem||0);
+        const el = document.getElementById('opn_selisih_'+i);
+        if(el) el.textContent = (selisih>0?'+':'')+selisih;
+      });
+    });
+  }
+}
+async function submitOpnameCount(){
+  const details = window.__opnameDetails||[];
+  const items = details.map((d,i)=>({
+    RowID: d.RowID, QtyFisik: val('opn_qty_'+i), Keterangan: val('opn_ket_'+i)
+  })).filter(it=>it.QtyFisik!=='' && it.QtyFisik!==null);
+  if(items.length===0){ toast('Isi minimal satu Qty Fisik dulu.', true); return; }
+  const res = await apiPost('saveOpnameCount', { OpnameID: window.__currentOpnameId, items });
+  if(res.success){ toast(items.length+' data tersimpan.'); } else toast(res.message,true);
+}
+async function doFinalizeOpname(opnameId){
+  if(!confirm('Finalisasi opname ini? Stok sistem akan disesuaikan mengikuti hasil fisik dan TIDAK BISA diubah lagi setelah ini. Pastikan semua Qty Fisik sudah benar.')) return;
+  await submitOpnameCount();
+  const actor = getActor();
+  const res = await apiPost('finalizeOpname', { OpnameID: opnameId, ActorRole: actor.role, ActorName: actor.name||'' });
+  if(res.success){ toast('Opname difinalisasi. '+res.jumlahSelisih+' part disesuaikan (lihat menu Part Loss).'); viewOpname(opnameId); } else toast(res.message,true);
+}
+
+/* ================= PART LOSS ================= */
+async function renderPartLoss(){
+  setMain(skeletonRows(4));
+  const res = await apiGet('listPartLoss');
+  const data = res.data||[];
+  setMain(`
+    <div class="page-head"><div><h2>Part Loss</h2><p>Jejak audit penyeimbang stok (selisih lebih/kurang) hasil finalisasi Stock Opname (${data.length} catatan)</p></div></div>
+    ${filterBarHtml('partloss', [
+      {key:'Tipe', label:'Tipe', options:['Selisih Lebih','Selisih Kurang (Loss)']}
+    ], 'CreatedAt')}
+    <div class="panel">${dataTable({
+      id:'partloss', rows:data, searchKeys:['PartNumber','PartName','OpnameID'],
+      columns:[
+        {key:'CreatedAt', label:'Tgl', render:r=>fmtDate(r.CreatedAt)},
+        {key:'OpnameID', label:'Opname', render:r=>`<span class="link-id" onclick="viewOpname('${r.OpnameID}')">${esc(r.OpnameID)}</span>`},
+        {key:'PartName', label:'Part', render:r=>`${esc(r.PartNumber)} - ${esc(r.PartName)}`},
+        {key:'QtySystem', label:'Qty Sistem', numeric:true},
+        {key:'QtyFisik', label:'Qty Fisik', numeric:true},
+        {key:'Selisih', label:'Selisih', numeric:true, render:r=>`<span class="badge ${r.Selisih>0?'good':'critical'}"><span class="dot"></span>${r.Selisih>0?'+':''}${r.Selisih}</span>`},
+        {key:'Tipe', label:'Tipe'},
+        {key:'CreatedBy', label:'Oleh', render:r=>esc(r.CreatedBy||'-')}
+      ]
+    })}</div>
+  `);
+  initTable('partloss');
 }
 
 /* ================= GLOBAL SEARCH (shortcut ke Kartu Stok / WO / PO) ================= */
