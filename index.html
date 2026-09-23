@@ -606,7 +606,7 @@ function parseMoneyLoose(v){
 
 /* status -> slot kategorikal (urutan tetap, konsisten dgn alur bisnis) */
 const WO_STATUS_SLOT = {'New':'s1','Dispatching':'s2','Material Picking':'s4','Completed':'s6','Invoice':'s5','Vehicle Delivery':'s3'};
-const PO_STATUS_BADGE = {'PO Created':'s1','Approval PO':'s4','PO Submit Order':'s7','Received':'good','Partial Received':'warn','Rejected':'critical'};
+const PO_STATUS_BADGE = {'PO Created':'s1','Approval PO':'s4','PO Submit Order':'s7','Received':'good','Partial Received':'warn','Rejected':'critical','Closed':'muted'};
 function statusBadge(status, map){ const slot = (map||WO_STATUS_SLOT)[status] || 'muted'; return `<span class="badge ${slot}"><span class="dot"></span>${esc(status)}</span>`; }
 
 function openModal(html){ document.getElementById('modalBody').innerHTML = html; document.getElementById('modalBg').classList.add('show'); }
@@ -2685,6 +2685,7 @@ async function submitPO(){
   if(res.success){ toast('PO dibuat: '+res.id); closeDrawer(); renderPOCreated(); } else toast(res.message,true);
 }
 async function viewPO(ponumber){
+  const actor = getActor();
   const res = await apiGet('getPO', {id:ponumber});
   if(!res.success){ toast(res.message,true); return; }
   const {header, details} = res.data;
@@ -2694,9 +2695,10 @@ async function viewPO(ponumber){
   openDrawer(`
     <div class="drawer-head"><h3>PO ${header.PONumber}</h3><button class="drawer-close" onclick="closeDrawer()">&times;</button></div>
     <div class="drawer-body">
-      ${header.Status==='Rejected' ? `<div class="badge critical" style="margin-bottom:14px;"><span class="dot"></span>PO Ditolak</div>` : `
+      ${header.Status==='Rejected' ? `<div class="badge critical" style="margin-bottom:14px;"><span class="dot"></span>PO Ditolak</div>` :
+        header.Status==='Closed' ? `<div class="badge muted" style="margin-bottom:14px;"><span class="dot"></span>PO Ditutup Manual (sisa barang dibatalkan)</div>` : `
       <div class="stepper">${stages.map((s,i)=>`<div class="step ${i<curIdx?'done':''} ${i===Math.floor(curIdx) && curIdx%1!==0 ? '':i===curIdx?'current':''}"><div class="circle">${i<curIdx?'✓':i+1}</div><div class="stitle">${s}</div></div>`).join('')}</div>`}
-      ${header.Status==='Partial Received' ? `<div class="warn-box">PO ini masih <b>Partial Received</b> — sengaja tetap terbuka supaya sisa barang yang belum datang bisa terus di-followup.</div>`:''}
+      ${header.Status==='Partial Received' ? `<div class="warn-box">PO ini masih <b>Partial Received</b> — sengaja tetap terbuka supaya sisa barang yang belum datang bisa terus di-followup lewat menu Penerimaan Part. Kalau sisanya sudah pasti tidak akan datang lagi (dibatalkan vendor), gunakan tombol <b>Tutup PO</b> di bawah.</div>`:''}
       <div class="grid2">
         <div class="kv"><span>Supplier</span><b>${esc(header.Supplier)}</b></div>
         <div class="kv"><span>Requested By</span><b>${esc(header.RequestedBy)}</b></div>
@@ -2706,13 +2708,14 @@ async function viewPO(ponumber){
         ${header.TglSubmitOrder ? `<div class="kv"><span>Tgl Submit Order</span><b>${fmtDate(header.TglSubmitOrder)}</b></div>`:''}
       </div>
       <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:12px;">
-        <table style="margin:0;"><thead><tr><th>No</th><th>Part Number</th><th>Part Name</th><th>Qty Order</th><th>Qty Diterima</th><th>Harga</th><th>Total Harga</th></tr></thead><tbody>
+        <table style="margin:0;"><thead><tr><th>No</th><th>Part Number</th><th>Part Name</th><th>Qty Order</th><th>Qty Diterima</th>${header.Status==='Closed'?'<th>Dibatalkan</th>':''}<th>Harga</th><th>Total Harga</th></tr></thead><tbody>
         ${details.map((d,i)=>`<tr>
           <td class="num">${i+1}</td>
           <td>${esc(d.PartNumber)}</td>
           <td>${esc(d.PartName)}</td>
           <td class="num">${d.QtyOrder}</td>
           <td class="num">${d.QtyDiterima||0}</td>
+          ${header.Status==='Closed'?`<td class="num">${Math.max(0, Number(d.QtyOrder)-Number(d.QtyDiterima||0))}</td>`:''}
           <td class="num">${fmtMoneyFull(d.HargaSatuan)}</td>
           <td class="num"><b>${fmtMoneyFull(d.Subtotal)}</b></td>
         </tr>`).join('')}
@@ -2727,9 +2730,19 @@ async function viewPO(ponumber){
         <button class="btn outline" onclick="printPO('${header.PONumber}')">🖨 Cetak PO (PDF)</button>
         ${header.Status==='Approval PO' ? `<button class="btn good" onclick="doSubmitPOOrder('${header.PONumber}')">${icon('approve')} Submit Order</button>`:''}
         ${header.Status==='Received' ? `<button class="btn ghost" onclick="openEditPOModal('${header.PONumber}')">${icon('edit')} Edit PO</button>`:''}
+        ${header.Status==='Partial Received' && (actor.role==='Manager'||actor.role==='Super Admin') ? `<button class="btn critical" onclick="doClosePO('${header.PONumber}')">${icon('close')||'✕'} Tutup PO (Sisa Dibatalkan)</button>`:''}
       </div>
     </div>
   `, true);
+}
+// Tutup PO manual walau belum diterima 100% - dipakai kalau sisa barang dipastikan tidak akan datang lagi
+// (vendor tidak sanggup kirim / order sisanya dibatalkan). Hanya Manager/Super Admin (dicek juga di backend).
+async function doClosePO(ponumber){
+  const actor = getActor();
+  const alasan = prompt('Alasan menutup PO ini walau belum diterima 100% (wajib diisi, mis. "Vendor tidak sanggup kirim sisa 5pcs, sudah konfirmasi by telepon"):');
+  if(!alasan) { toast('Penutupan dibatalkan, alasan wajib diisi.', true); return; }
+  const res = await apiPost('closePO', {PONumber:ponumber, Alasan:alasan, ClosedBy:actor.name, ActorRole:actor.role});
+  if(res.success){ toast('PO ditutup. Sisa barang yang belum diterima dianggap batal.'); closeDrawer(); renderPOCreated(); } else toast(res.message,true);
 }
 // Cetak PO sebagai halaman siap-PDF (sama seperti Cetak Form WO / Invoice) - dipakai untuk dikirim ke supplier.
 async function printPO(ponumber){
@@ -2867,19 +2880,26 @@ async function formPenerimaan(){
     </div>
     <div class="drawer-foot"><button class="btn secondary" onclick="closeDrawer()">Batal</button>
     <button class="btn" onclick="submitPenerimaan()">Simpan Penerimaan</button></div>
-  `);
+  `, true);
   loadPODetailForGR();
 }
 async function loadPODetailForGR(){
   const ponumber = val('gr_po');
-  const res = await apiGet('getPO', {id:ponumber});
+  const [res, pres] = await Promise.all([apiGet('getPO', {id:ponumber}), apiGet('listPart')]);
   const details = res.data.details;
   window.__grDetails = details;
-  const rowsHtml = ['<h3 style="font-size:13.5px;">Detail Part</h3><p class="sub" style="margin-top:-4px;">Kondisi <b>OK</b> akan lanjut ke Sign In (isi rak) untuk masuk stok. Kondisi <b>NG</b> tidak diproses ke stok.</p><table><tr><th>Part</th><th>Order</th><th>Diterima</th><th>Qty Sekarang</th><th>Kondisi</th></tr>'];
+  // Peta PartNumber -> StokAkhir dari Inventory Master (Part_Master), untuk kolom "Stok Saat Ini" (read-only).
+  const stokMap = {};
+  (pres.data||[]).forEach(p=> stokMap[String(p.PartNumber)] = Number(p.StokAkhir)||0);
+  const rowsHtml = ['<h3 style="font-size:13.5px;">Detail Part</h3><p class="sub" style="margin-top:-4px;">Kondisi <b>OK</b> akan lanjut ke Sign In (isi rak) untuk masuk stok. Kondisi <b>NG</b> tidak diproses ke stok. Isi qty yang benar-benar diterima pada kolom <b>Diterima</b>. Baris yang sudah diterima 100% otomatis terkunci (part tsb tetap "open" untuk baris lain di PO yang sama sampai semuanya lengkap).</p><table><tr><th>Part</th><th>Order</th><th>Sudah Diterima</th><th>Diterima</th><th>Stok Saat Ini (Inventory Master)</th><th>Kondisi</th></tr>'];
   details.forEach(function(d,i){
-    rowsHtml.push('<tr><td>', esc(d.PartName), '</td><td>', d.QtyOrder, '</td><td>', (d.QtyDiterima||0), '</td>',
-      '<td><input type="number" id="gr_qty_' + i + '" style="width:64px;margin:0;"></td>',
-      '<td><select id="gr_kondisi_' + i + '" style="margin:0;"><option value="OK">OK</option><option value="NG">NG (Rusak/Tidak Sesuai)</option></select></td></tr>');
+    const stokSaatIni = stokMap[String(d.PartNumber)] || 0;
+    const sisaLine = Math.max(0, Number(d.QtyOrder) - Number(d.QtyDiterima||0));
+    const lineDone = sisaLine === 0;
+    rowsHtml.push('<tr' + (lineDone?' style="opacity:.55;"':'') + '><td>', esc(d.PartName), lineDone?' <span class="muted" style="font-size:10.5px;">(lunas)</span>':'', '</td><td>', d.QtyOrder, '</td><td>', (d.QtyDiterima||0), '</td>',
+      '<td><input type="number" id="gr_qty_' + i + '" style="width:64px;margin:0;" ' + (lineDone?'disabled':'') + '></td>',
+      '<td><input type="text" value="' + stokSaatIni + '" disabled style="width:70px;margin:0;background:var(--surface-3);color:var(--ink-2);"></td>',
+      '<td><select id="gr_kondisi_' + i + '" style="margin:0;" ' + (lineDone?'disabled':'') + '><option value="OK">OK</option><option value="NG">NG (Rusak/Tidak Sesuai)</option></select></td></tr>');
   });
   rowsHtml.push('</table>');
   document.getElementById('gr_detail_list').innerHTML = rowsHtml.join('');
