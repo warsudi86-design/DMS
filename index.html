@@ -466,10 +466,17 @@ const NAV = [
 const MENU_LIST = (function(){ const out=[]; NAV.forEach(g=>{ g.items.forEach(it=>{ out.push({id:it.id, label:it.label, group:g.group||'Umum'}); }); }); return out; })();
 // window.__menuPerms diisi dari getMenuPermissions() saat login/init. 'Super Admin' selalu penuh akses,
 // dan menu tanpa baris privilege eksplisit dianggap TERLIHAT (allow-by-default).
-function isMenuAllowed(role, menuId){
+// Baris dengan Username terisi = override KHUSUS 1 orang (dicek lebih dulu), baris tanpa Username
+// (kosong) = default untuk SEMUA orang dengan Role tsb. Ini dipakai ketika ada >1 orang di Role yang
+// sama tapi butuh akses menu berbeda, misal 2 orang sama-sama SA.
+function isMenuAllowed(role, menuId, username){
   if(role==='Super Admin') return true;
   const rows = window.__menuPerms||[];
-  const row = rows.find(r=>r.Role===role && r.MenuID===menuId);
+  if(username){
+    const userRow = rows.find(r=>r.Role===role && r.MenuID===menuId && String(r.Username||'').trim()===String(username).trim());
+    if(userRow) return !(userRow.Allowed===false || userRow.Allowed==='FALSE' || userRow.Allowed==='false');
+  }
+  const row = rows.find(r=>r.Role===role && r.MenuID===menuId && !String(r.Username||'').trim());
   if(!row) return true;
   return !(row.Allowed===false || row.Allowed==='FALSE' || row.Allowed==='false');
 }
@@ -477,7 +484,7 @@ function buildNav(){
   const el = document.getElementById('navGroup');
   const actor = getActor();
   el.innerHTML = NAV.map((g,gi) => {
-    const visibleItems = g.items.filter(it=>isMenuAllowed(actor.role, it.id));
+    const visibleItems = g.items.filter(it=>isMenuAllowed(actor.role, it.id, actor.username));
     if(visibleItems.length===0) return '';
     return `
     ${g.group ? `<div class="nav-title" data-group-toggle="${gi}"><span>${g.group}</span><svg class="nav-arrow" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M6 9l6 6 6-6"/></svg></div>` : ''}
@@ -1276,16 +1283,22 @@ async function renderKaryawan(){
         {key:'Role', label:'Role', render:u=>statusBadge(u.Role, ROLE_BADGE)},
         {key:'Active', label:'Status', render:u=> (u.Active===true||u.Active==='TRUE'||u.Active===1) ? '<span class="badge good"><span class="dot"></span>Aktif</span>' : '<span class="badge muted"><span class="dot"></span>Nonaktif</span>'}
       ],
-      rowActions:u=>`<button class="btn ghost sm" onclick='formUser(${JSON.stringify(u)})'>${icon('edit')} Edit</button>`
+      rowActions:u=>`<button class="btn ghost sm" onclick='formUser(${JSON.stringify(u)})'>${icon('edit')} Edit</button>
+        <button class="btn ghost sm" onclick="confirmResetPassword('${esc(u.Username)}','${esc(u.Nama)}')">${icon('lock')||'🔒'} Reset Password</button>`
     })}</div>
     <div class="panel" style="margin-top:16px;">
       <div class="flex-between" style="flex-wrap:wrap;gap:10px;">
         <div>
-          <h3 style="font-size:14px;margin:0 0 4px;">Privilege Menu per Role</h3>
-          <p class="sub" style="margin:0;">Atur menu apa saja yang bisa dibuka tiap role di sidebar. Hanya akun <b>Super Admin</b> yang bisa mengubah ini.</p>
+          <h3 style="font-size:14px;margin:0 0 4px;">Privilege Menu per Role / per Orang</h3>
+          <p class="sub" style="margin:0;">Atur menu apa saja yang bisa dibuka. Pilih "Semua orang di role ini" untuk default 1 role, atau pilih nama orang tertentu untuk pengecualian (misal ada 2 orang sama-sama SA tapi aksesnya beda). Hanya akun <b>Super Admin</b> yang bisa mengubah ini.</p>
         </div>
-        <div><label style="font-size:11px;display:block;">Pilih Role</label>
-          <select id="priv_role_select" onchange="loadMenuPrivilegeUI()">${ROLES.filter(r=>r!=='Super Admin').map(r=>`<option value="${r}">${r}</option>`).join('')}</select>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <div><label style="font-size:11px;display:block;">Pilih Role</label>
+            <select id="priv_role_select" onchange="onPrivRoleChange()">${ROLES.filter(r=>r!=='Super Admin').map(r=>`<option value="${r}">${r}</option>`).join('')}</select>
+          </div>
+          <div><label style="font-size:11px;display:block;">Berlaku untuk</label>
+            <select id="priv_target_select" onchange="loadMenuPrivilegeUI()"></select>
+          </div>
         </div>
       </div>
       ${actor.role!=='Super Admin' ? `<div class="warn-box" style="margin-top:10px;">Anda login sebagai <b>${esc(actor.role)}</b>. Hanya akun <b>Super Admin</b> yang bisa mencentang/menyimpan privilege menu di sini.</div>` : ''}
@@ -1296,10 +1309,21 @@ async function renderKaryawan(){
     </div>
   `);
   initTable('user');
+  onPrivRoleChange();
+}
+function onPrivRoleChange(){
+  const role = val('priv_role_select');
+  const users = (window.__users||[]).filter(u=>u.Role===role);
+  const sel = document.getElementById('priv_target_select');
+  if(sel){
+    sel.innerHTML = `<option value="">— Semua orang di role ${esc(role)} (default) —</option>` +
+      users.map(u=>`<option value="${esc(u.Username)}">${esc(u.Nama)} (${esc(u.Username)}) - khusus orang ini</option>`).join('');
+  }
   loadMenuPrivilegeUI();
 }
 async function loadMenuPrivilegeUI(){
   const role = val('priv_role_select');
+  const username = val('priv_target_select');
   const permRes = await apiGet('getMenuPermissions');
   window.__menuPerms = permRes.data||[];
   const box = document.getElementById('priv_checklist');
@@ -1313,7 +1337,9 @@ async function loadMenuPrivilegeUI(){
       <div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:6px;">${esc(g)}</div>
       <div>
         ${groups[g].map(m=>{
-          const allowed = isMenuAllowed(role, m.id);
+          // Kalau sedang atur khusus 1 orang tapi orang itu belum punya override sendiri, checklist
+          // mulai dari kondisi default role-nya supaya jelas apa yang akan berubah kalau disimpan.
+          const allowed = isMenuAllowed(role, m.id, username);
           return `<label class="priv-chk"><input type="checkbox" data-menu="${m.id}" ${allowed?'checked':''} ${disabled}><span>${esc(m.label)}</span></label>`;
         }).join('')}
       </div>
@@ -1324,13 +1350,32 @@ async function saveMenuPrivilege(){
   const actor = getActor();
   if(actor.role!=='Super Admin'){ toast('Hanya akun Super Admin yang bisa menyimpan privilege menu', true); return; }
   const role = val('priv_role_select');
+  const username = val('priv_target_select');
   const rows = Array.from(document.querySelectorAll('#priv_checklist input[type=checkbox]')).map(el=>({MenuID: el.dataset.menu, Allowed: el.checked}));
-  const res = await apiPost('saveMenuPermissions', {Role:role, rows:rows, ActorRole:actor.role, ActorName:actor.name});
+  const res = await apiPost('saveMenuPermissions', {Role:role, Username:username, rows:rows, ActorRole:actor.role, ActorName:actor.name});
   if(res.success){
-    toast('Privilege menu untuk role '+role+' tersimpan');
+    toast(username ? ('Privilege khusus untuk '+username+' tersimpan') : ('Privilege default role '+role+' tersimpan'));
     const pr = await apiGet('getMenuPermissions'); window.__menuPerms = pr.data||[];
     buildNav();
   } else toast(res.message,true);
+}
+async function confirmResetPassword(username, nama){
+  const actor = getActor();
+  if(!(actor.role==='Manager'||actor.role==='Super Admin')){ toast('Hanya Manager/Super Admin yang bisa reset password', true); return; }
+  openModal(`
+    <h3 style="margin:0 0 4px;">Reset Password</h3>
+    <p class="sub" style="margin:0 0 14px;">Password <b>${esc(nama)}</b> (${esc(username)}) akan dikosongkan. Pada login berikutnya, ${esc(nama)} akan otomatis diminta membuat password baru sendiri.</p>
+    <div style="display:flex;justify-content:flex-end;gap:8px;">
+      <button class="btn secondary" onclick="closeModal()">Batal</button>
+      <button class="btn critical" onclick="doResetPassword('${esc(username)}')">Ya, Reset Password</button>
+    </div>
+  `);
+}
+async function doResetPassword(username){
+  const actor = getActor();
+  const res = await apiPost('resetUserPassword', {Username:username, ActorRole:actor.role, ActorName:actor.name});
+  if(res.success){ toast('Password berhasil direset. User wajib membuat password baru saat login berikutnya.'); closeModal(); }
+  else toast(res.message, true);
 }
 function formUser(u){
   u = u || {};
@@ -1370,8 +1415,8 @@ async function submitUser(isEdit){
 // privilege menu tiap role lewat menu Karyawan/Role (lihat loadMenuPrivilegeUI() & saveMenuPrivilege()).
 const ROLES = ['SA', 'Mekanik', 'Part Staff', 'Kasir', 'Manager', 'Super Admin'];
 function getActor(){
-  try{ return JSON.parse(localStorage.getItem('dms_actor')||'null') || {name:'Guest', role:'SA'}; }
-  catch(e){ return {name:'Guest', role:'SA'}; }
+  try{ return JSON.parse(localStorage.getItem('dms_actor')||'null') || {name:'Guest', role:'SA', username:''}; }
+  catch(e){ return {name:'Guest', role:'SA', username:''}; }
 }
 function setActor(actor){
   try{ localStorage.setItem('dms_actor', JSON.stringify(actor)); }catch(e){}
@@ -1429,7 +1474,7 @@ async function submitLogin(){
     return;
   }
   try{ localStorage.setItem('dms_logged_in','1'); }catch(e){}
-  setActor({name:res.data.Nama, role:res.data.Role});
+  setActor({name:res.data.Nama, role:res.data.Role, username:res.data.Username});
   await showAppShell();
 }
 // Akun lama/baru yang belum pernah punya password WAJIB set password sendiri dulu, sebelum bisa lanjut
@@ -1460,7 +1505,7 @@ async function confirmSetOwnPassword(){
   window.__modalLocked = false;
   window.__pendingLogin = null;
   try{ localStorage.setItem('dms_logged_in','1'); }catch(e){}
-  setActor({name:pending.nama, role:pending.role});
+  setActor({name:pending.nama, role:pending.role, username:pending.username});
   toast('Password berhasil dibuat');
   closeModal();
   await showAppShell();
