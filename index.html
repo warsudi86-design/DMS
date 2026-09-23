@@ -283,6 +283,24 @@ textarea{resize:vertical;min-height:60px;}
   border-radius:10px;padding:6px 10px;font-size:12px;cursor:pointer;white-space:nowrap;}
 .role-pill b{color:var(--ink);}
 .role-pill:hover{border-color:var(--border-strong);}
+
+/* ---------- login screen (halaman depan sesuai role) ---------- */
+.login-screen{position:fixed;inset:0;z-index:200;display:flex;align-items:center;justify-content:center;
+  background:var(--bg);}
+.login-card{width:380px;max-width:92vw;background:var(--surface);border:1px solid var(--border-strong);
+  border-radius:18px;padding:32px 28px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.4);}
+.login-card .login-logo{width:56px;height:56px;border-radius:14px;background:var(--brand);color:#fff;
+  display:flex;align-items:center;justify-content:center;font-weight:800;margin:0 auto 14px;overflow:hidden;}
+.login-card .login-logo img{width:100%;height:100%;object-fit:contain;}
+.login-card h1{margin:0 0 2px;font-size:19px;}
+.login-card .sub{margin:0 0 18px;}
+.login-card label{text-align:left;}
+.login-card select{width:100%;}
+
+/* ---------- privilege menu checklist (Karyawan/Role, khusus Super Admin) ---------- */
+.priv-chk{display:inline-flex;align-items:center;gap:6px;background:var(--surface-2);border:1px solid var(--border);
+  padding:6px 10px;border-radius:20px;font-size:12.5px;margin:0 6px 6px 0;}
+.priv-chk input[type=checkbox]{width:auto;margin:0;}
 .warn-box{background:rgba(250,178,25,.12);border:1px solid rgba(250,178,25,.35);color:#fcd374;
   padding:10px 12px;border-radius:10px;font-size:12.5px;margin-bottom:12px;}
 .danger-box{background:rgba(208,59,59,.12);border:1px solid rgba(208,59,59,.35);color:#f28080;
@@ -320,7 +338,18 @@ textarea{resize:vertical;min-height:60px;}
 </style>
 </head>
 <body>
-<div class="app">
+<div class="login-screen" id="loginScreen" style="display:none;">
+  <div class="login-card">
+    <div class="login-logo" id="loginLogo">DMS</div>
+    <h1>BW GROUP</h1>
+    <p class="sub">BW Auto Craft — Dealer Management System</p>
+    <label>Pilih Nama Anda</label>
+    <select id="login_user_select"></select>
+    <p class="sub" id="loginEmpty" style="display:none;margin-top:6px;">Belum ada data karyawan terdaftar. Hubungi akun <b>Super Admin</b> untuk didaftarkan lewat menu Karyawan / Role.</p>
+    <button class="btn" id="loginSubmitBtn" style="width:100%;margin-top:14px;" onclick="submitLogin()">Masuk</button>
+  </div>
+</div>
+<div class="app" id="appRoot" style="display:none;">
   <div class="sidebar" id="sidebar">
     <div class="brand">
       <div class="logo" id="brandLogo">DMS</div>
@@ -341,6 +370,7 @@ textarea{resize:vertical;min-height:60px;}
         <input id="globalSearch" placeholder="Cari part, WO, PO...">
       </div>
       <div class="role-pill" id="rolePill" onclick="openRoleSwitcher()" title="Ganti pengguna aktif">👤 <span id="rolePillText">Pilih pengguna</span></div>
+      <button class="collapse-btn" onclick="logout()" title="Logout">⏻</button>
       <div class="bell" onclick="views.dashboard()" title="Peringatan stok"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg><span class="dot" id="bellDot" style="display:none"></span></div>
       <div class="avatar">AF</div>
     </div>
@@ -429,14 +459,29 @@ const NAV = [
     {id:'report-unit-entry', label:'Unit Entry', icon:'vehicle'},
   ]}
 ];
+// Daftar flat semua menu (dipakai matrix Privilege Menu di Karyawan/Role) - id & label ikut definisi NAV di atas.
+const MENU_LIST = (function(){ const out=[]; NAV.forEach(g=>{ g.items.forEach(it=>{ out.push({id:it.id, label:it.label, group:g.group||'Umum'}); }); }); return out; })();
+// window.__menuPerms diisi dari getMenuPermissions() saat login/init. 'Super Admin' selalu penuh akses,
+// dan menu tanpa baris privilege eksplisit dianggap TERLIHAT (allow-by-default).
+function isMenuAllowed(role, menuId){
+  if(role==='Super Admin') return true;
+  const rows = window.__menuPerms||[];
+  const row = rows.find(r=>r.Role===role && r.MenuID===menuId);
+  if(!row) return true;
+  return !(row.Allowed===false || row.Allowed==='FALSE' || row.Allowed==='false');
+}
 function buildNav(){
   const el = document.getElementById('navGroup');
-  el.innerHTML = NAV.map((g,gi) => `
+  const actor = getActor();
+  el.innerHTML = NAV.map((g,gi) => {
+    const visibleItems = g.items.filter(it=>isMenuAllowed(actor.role, it.id));
+    if(visibleItems.length===0) return '';
+    return `
     ${g.group ? `<div class="nav-title" data-group-toggle="${gi}"><span>${g.group}</span><svg class="nav-arrow" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M6 9l6 6 6-6"/></svg></div>` : ''}
     <div class="nav-items" data-group="${gi}">
-    ${g.items.map(it => `<div class="nav-item" data-view="${it.id}" title="${it.label}">${icon(it.icon)}<span class="label">${it.label}</span>${it.id==='partmaster'?'<span class="nav-badge" id="navLowStock" style="display:none"></span>':''}</div>`).join('')}
+    ${visibleItems.map(it => `<div class="nav-item" data-view="${it.id}" title="${it.label}">${icon(it.icon)}<span class="label">${it.label}</span>${it.id==='partmaster'?'<span class="nav-badge" id="navLowStock" style="display:none"></span>':''}</div>`).join('')}
     </div>
-  `).join('');
+  `;}).join('');
   el.querySelectorAll('.nav-item').forEach(item=>{
     item.addEventListener('click', ()=>{
       el.querySelectorAll('.nav-item').forEach(i=>i.classList.remove('active'));
@@ -457,25 +502,34 @@ function buildNav(){
       if(itemsEl) itemsEl.classList.toggle('collapsed');
     });
   });
-  el.querySelector('[data-view="dashboard"]').classList.add('active');
+  // Dashboard bisa saja disembunyikan dari role tertentu - kalau begitu, aktifkan menu pertama yang terlihat.
+  const dashItem = el.querySelector('[data-view="dashboard"]');
+  const firstItem = el.querySelector('.nav-item');
+  if(dashItem) dashItem.classList.add('active');
+  else if(firstItem) firstItem.classList.add('active');
 }
 function toggleSidebar(){ document.getElementById('sidebar').classList.toggle('collapsed'); }
 function initBrandLogo(){
-  const el = document.getElementById('brandLogo');
-  if(!el) return;
-  if(COMPANY.logoUrl){
-    el.classList.add('has-img');
-    el.innerHTML = '';
-    const img = document.createElement('img');
-    img.src = COMPANY.logoUrl; img.alt = COMPANY.name;
-    el.appendChild(img);
-  } else {
-    el.textContent = 'DMS';
-  }
+  ['brandLogo','loginLogo'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(!el) return;
+    if(COMPANY.logoUrl){
+      el.classList.add('has-img');
+      el.innerHTML = '';
+      const img = document.createElement('img');
+      img.src = COMPANY.logoUrl; img.alt = COMPANY.name;
+      el.appendChild(img);
+    } else {
+      el.textContent = 'DMS';
+    }
+  });
 }
-buildNav();
-setActor(getActor());
 initBrandLogo();
+if(isLoggedIn()){
+  showAppShell();
+} else {
+  showLoginScreen();
+}
 
 /* ================= HELPER API ================= */
 async function apiGet(action, params={}){
@@ -1202,12 +1256,13 @@ async function saveLabor(){
 }
 
 /* ================= MASTER: KARYAWAN / ROLE (dipakai utk gate akses Work Order) ================= */
-const ROLE_BADGE = {'SA':'s1','Mekanik':'s2','Part Staff':'s4','Kasir':'s6','Manager':'critical'};
+const ROLE_BADGE = {'SA':'s1','Mekanik':'s2','Part Staff':'s4','Kasir':'s6','Manager':'critical','Super Admin':'critical'};
 async function renderKaryawan(){
   setMain(skeletonRows(4));
   const res = await apiGet('listUsers');
   const data = res.data||[];
   window.__users = data;
+  const actor = getActor();
   setMain(`
     <div class="page-head"><div><h2>Karyawan / Role</h2><p>Master pengguna aktif yang menjalankan proses Work Order (${data.length} total)</p></div>
       <button class="btn" onclick="formUser()">${icon('plus')} Tambah Karyawan</button></div>
@@ -1220,8 +1275,59 @@ async function renderKaryawan(){
       ],
       rowActions:u=>`<button class="btn ghost sm" onclick='formUser(${JSON.stringify(u)})'>${icon('edit')} Edit</button>`
     })}</div>
+    <div class="panel" style="margin-top:16px;">
+      <div class="flex-between" style="flex-wrap:wrap;gap:10px;">
+        <div>
+          <h3 style="font-size:14px;margin:0 0 4px;">Privilege Menu per Role</h3>
+          <p class="sub" style="margin:0;">Atur menu apa saja yang bisa dibuka tiap role di sidebar. Hanya akun <b>Super Admin</b> yang bisa mengubah ini.</p>
+        </div>
+        <div><label style="font-size:11px;display:block;">Pilih Role</label>
+          <select id="priv_role_select" onchange="loadMenuPrivilegeUI()">${ROLES.filter(r=>r!=='Super Admin').map(r=>`<option value="${r}">${r}</option>`).join('')}</select>
+        </div>
+      </div>
+      ${actor.role!=='Super Admin' ? `<div class="warn-box" style="margin-top:10px;">Anda login sebagai <b>${esc(actor.role)}</b>. Hanya akun <b>Super Admin</b> yang bisa mencentang/menyimpan privilege menu di sini.</div>` : ''}
+      <div id="priv_checklist" style="margin-top:14px;"></div>
+      <div style="display:flex;justify-content:flex-end;margin-top:14px;">
+        <button class="btn" id="priv_save_btn" onclick="saveMenuPrivilege()" ${actor.role!=='Super Admin'?'disabled':''}>Simpan Privilege</button>
+      </div>
+    </div>
   `);
   initTable('user');
+  loadMenuPrivilegeUI();
+}
+async function loadMenuPrivilegeUI(){
+  const role = val('priv_role_select');
+  const permRes = await apiGet('getMenuPermissions');
+  window.__menuPerms = permRes.data||[];
+  const box = document.getElementById('priv_checklist');
+  if(!box) return;
+  const groups = {};
+  MENU_LIST.forEach(m=>{ (groups[m.group]=groups[m.group]||[]).push(m); });
+  const actor = getActor();
+  const disabled = actor.role!=='Super Admin' ? 'disabled' : '';
+  box.innerHTML = Object.keys(groups).map(g=>`
+    <div style="margin-bottom:12px;">
+      <div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:6px;">${esc(g)}</div>
+      <div>
+        ${groups[g].map(m=>{
+          const allowed = isMenuAllowed(role, m.id);
+          return `<label class="priv-chk"><input type="checkbox" data-menu="${m.id}" ${allowed?'checked':''} ${disabled}><span>${esc(m.label)}</span></label>`;
+        }).join('')}
+      </div>
+    </div>
+  `).join('');
+}
+async function saveMenuPrivilege(){
+  const actor = getActor();
+  if(actor.role!=='Super Admin'){ toast('Hanya akun Super Admin yang bisa menyimpan privilege menu', true); return; }
+  const role = val('priv_role_select');
+  const rows = Array.from(document.querySelectorAll('#priv_checklist input[type=checkbox]')).map(el=>({MenuID: el.dataset.menu, Allowed: el.checked}));
+  const res = await apiPost('saveMenuPermissions', {Role:role, rows:rows, ActorRole:actor.role, ActorName:actor.name});
+  if(res.success){
+    toast('Privilege menu untuk role '+role+' tersimpan');
+    const pr = await apiGet('getMenuPermissions'); window.__menuPerms = pr.data||[];
+    buildNav();
+  } else toast(res.message,true);
 }
 function formUser(u){
   u = u || {};
@@ -1250,7 +1356,9 @@ async function submitUser(isEdit){
 }
 
 /* ================= ROLE SWITCHER (simulasi login ringan utk gate proses Work Order) ================= */
-const ROLES = ['SA', 'Mekanik', 'Part Staff', 'Kasir', 'Manager'];
+// 'Super Admin' adalah role tertinggi: melihat SEMUA menu, dan satu-satunya yang bisa mengatur
+// privilege menu tiap role lewat menu Karyawan/Role (lihat loadMenuPrivilegeUI() & saveMenuPrivilege()).
+const ROLES = ['SA', 'Mekanik', 'Part Staff', 'Kasir', 'Manager', 'Super Admin'];
 function getActor(){
   try{ return JSON.parse(localStorage.getItem('dms_actor')||'null') || {name:'Guest', role:'SA'}; }
   catch(e){ return {name:'Guest', role:'SA'}; }
@@ -1288,8 +1396,66 @@ function confirmRoleSwitch(){
   const u = (window.__roleSwitchUsers||[]).find(x=>x.Username===uname);
   if(!u){ closeModal(); return; }
   setActor({name:u.Nama, role:u.Role});
+  buildNav(); // menu yang terlihat bisa beda tiap role - refresh sidebar setelah ganti pengguna
+  const dashItem = document.querySelector('[data-view="dashboard"]');
+  if(dashItem) dashItem.click(); else renderDashboard();
   toast('Login sebagai '+u.Nama+' ('+u.Role+')');
   closeModal();
+}
+
+/* ================= LOGIN (halaman depan sesuai role) ================= */
+function isLoggedIn(){
+  try{ return localStorage.getItem('dms_logged_in')==='1'; }catch(e){ return false; }
+}
+async function showLoginScreen(){
+  const appRoot = document.getElementById('appRoot');
+  if(appRoot) appRoot.style.display='none';
+  const ls = document.getElementById('loginScreen');
+  if(ls) ls.style.display='flex';
+  const res = await apiGet('listUsers');
+  const users = (res.data||[]).filter(u=> !(u.Active===false||u.Active==='FALSE'));
+  window.__loginUsers = users;
+  const sel = document.getElementById('login_user_select');
+  const emptyMsg = document.getElementById('loginEmpty');
+  const btn = document.getElementById('loginSubmitBtn');
+  if(users.length===0){
+    if(sel) sel.style.display='none';
+    if(emptyMsg) emptyMsg.style.display='block';
+    if(btn) btn.style.display='none';
+  } else {
+    if(sel){ sel.style.display=''; sel.innerHTML = users.map(u=>`<option value="${esc(u.Username)}">${esc(u.Nama)} — ${esc(u.Role)}</option>`).join(''); }
+    if(emptyMsg) emptyMsg.style.display='none';
+    if(btn) btn.style.display='';
+  }
+}
+async function submitLogin(){
+  const uname = val('login_user_select');
+  const u = (window.__loginUsers||[]).find(x=>x.Username===uname);
+  if(!u){ toast('Pilih nama Anda terlebih dahulu', true); return; }
+  try{ localStorage.setItem('dms_logged_in','1'); }catch(e){}
+  setActor({name:u.Nama, role:u.Role});
+  await showAppShell();
+}
+async function initAppAfterLogin(){
+  const permRes = await apiGet('getMenuPermissions');
+  window.__menuPerms = permRes.data||[];
+  buildNav();
+  setActor(getActor());
+  initBrandLogo();
+  const dashItem = document.querySelector('[data-view="dashboard"]');
+  if(dashItem) dashItem.click(); else renderDashboard();
+}
+async function showAppShell(){
+  const ls = document.getElementById('loginScreen');
+  if(ls) ls.style.display='none';
+  const appRoot = document.getElementById('appRoot');
+  if(appRoot) appRoot.style.display='';
+  await initAppAfterLogin();
+}
+function logout(){
+  try{ localStorage.removeItem('dms_logged_in'); }catch(e){}
+  toast('Anda telah logout');
+  showLoginScreen();
 }
 
 /* ================= WORK ORDER (KANBAN + LIST) ================= */
@@ -1389,8 +1555,8 @@ function drawWOList(data){
 }
 
 async function formWorkOrder(){
-  const [cres,vres,pres,lres] = await Promise.all([apiGet('listCustomer'),apiGet('listVehicle'),apiGet('listPart'),apiGet('listLabor')]);
-  window.__customers = cres.data||[]; window.__vehicles = vres.data||[]; window.__parts = pres.data||[]; window.__labors = lres.data||[];
+  const [cres,vres,pres,lres,sres] = await Promise.all([apiGet('listCustomer'),apiGet('listVehicle'),apiGet('listPart'),apiGet('listLabor'),apiGet('listSublet')]);
+  window.__customers = cres.data||[]; window.__vehicles = vres.data||[]; window.__parts = pres.data||[]; window.__labors = lres.data||[]; window.__sublets = sres.data||[];
   woCart = { parts:[], labors:[], sublets:[] };
   const custMap = {}; window.__customers.forEach(c=>custMap[c.CustomerID]=c);
   const vehicleChoices = window.__vehicles.map(v=>({...v, custName:(custMap[v.CustomerID]||{}).Nama||'', custHP:(custMap[v.CustomerID]||{}).NoHP||''}));
@@ -1433,9 +1599,9 @@ async function formWorkOrder(){
             <div id="wo_labor_list" class="chip-list"></div>
 
             <h3 style="font-size:13.5px;margin-bottom:2px;">Sublet (Pekerjaan Pihak Ketiga)</h3>
-            <p class="sub" style="margin:0 0 8px;">Masukkan dulu detail sublet (nama, qty, harga beli & harga jual), baru tambahkan ke item Work Order.</p>
+            <p class="sub" style="margin:0 0 8px;">Cari dulu apakah sublet ini sudah pernah dipakai sebelumnya (harga otomatis terisi) - baru ketik nama baru kalau memang belum ada, supaya tidak dobel.</p>
             <div class="grid3">
-              <div><label>Nama Sublet</label><input id="wo_sublet_name" placeholder="mis. Cuci Karpet, Spooring"></div>
+              <div><label>Cari / Ketik Nama Sublet</label>${comboSearchHtml('wo_sublet_combo','Cari sublet yang sudah ada, atau ketik nama baru...')}</div>
               <div><label>Qty</label><input id="wo_sublet_qty" type="number" value="1"></div>
               <div><label>Harga Beli (Vendor)</label><input id="wo_sublet_hb" type="number" value="0"></div>
             </div>
@@ -1489,6 +1655,13 @@ async function formWorkOrder(){
     getValue:l=>l.LaborCode,
     searchText:l=>`${l.LaborCode} ${l.LaborName}`
   });
+  attachComboSearch('wo_sublet_combo', window.__sublets, {
+    getLabel:s=>s.SubletName,
+    getSub:s=>`Harga Beli: ${fmtMoneyFull(s.HargaBeli)} · Harga Jual: ${fmtMoneyFull(s.HargaJual)}`,
+    getValue:s=>s.SubletName,
+    searchText:s=>s.SubletName,
+    onSelect:s=>{ setFieldValue('wo_sublet_hb', Number(s.HargaBeli)||0); setFieldValue('wo_sublet_hj', Number(s.HargaJual)||0); }
+  });
   renderWOLists();
 }
 async function addWOPart(){
@@ -1525,15 +1698,19 @@ function addWOLabor(){
 }
 function removeWOLabor(i){ woCart.labors.splice(i,1); renderWOLists(); }
 function addWOSublet(){
-  const name = val('wo_sublet_name').trim();
+  const name = val('wo_sublet_combo_input').trim();
   const qty = Number(val('wo_sublet_qty'))||0;
   const hb = Number(val('wo_sublet_hb'))||0;
   const hj = Number(val('wo_sublet_hj'))||0;
   const disc = Math.min(1, Math.max(0, Number(val('wo_sublet_disc'))||0));
-  if(!name || qty<=0){ toast('Isi nama sublet dan qty terlebih dahulu', true); return; }
+  if(!name || qty<=0){ toast('Cari/ketik nama sublet dan isi qty terlebih dahulu', true); return; }
+  if(woCart.sublets.some(s=>s.SubletName.trim().toLowerCase()===name.toLowerCase())){
+    toast('Sublet "'+name+'" sudah ada di daftar item WO ini. Hapus dulu kalau mau ubah qty/harga.', true); return;
+  }
   woCart.sublets.push({SubletName:name, Qty:qty, HargaBeli:hb, HargaJual:hj, DiskonPersen:disc});
   renderWOLists();
-  setFieldValue('wo_sublet_name',''); setFieldValue('wo_sublet_qty',1); setFieldValue('wo_sublet_hb',0); setFieldValue('wo_sublet_hj',0); setFieldValue('wo_sublet_disc',0);
+  setFieldValue('wo_sublet_combo',''); const inp=document.getElementById('wo_sublet_combo_input'); if(inp) inp.value='';
+  setFieldValue('wo_sublet_qty',1); setFieldValue('wo_sublet_hb',0); setFieldValue('wo_sublet_hj',0); setFieldValue('wo_sublet_disc',0);
 }
 function removeWOSublet(i){ woCart.sublets.splice(i,1); renderWOLists(); }
 function woItemChipLabel(name, qty, gross, discPersen){
@@ -1671,6 +1848,7 @@ async function confirmApproveDiskon(woid){
 async function openAddItemModal(woid, type){
   if(type==='part' && !(window.__parts&&window.__parts.length)){ const r=await apiGet('listPart'); window.__parts=r.data||[]; }
   if(type==='labor' && !(window.__labors&&window.__labors.length)){ const r=await apiGet('listLabor'); window.__labors=r.data||[]; }
+  if(type==='sublet' && !(window.__sublets&&window.__sublets.length)){ const r=await apiGet('listSublet'); window.__sublets=r.data||[]; }
   let bodyHtml='';
   if(type==='part'){
     bodyHtml = `<label>Cari Part</label>${comboSearchHtml('ai_part_combo','Cari No Part / Nama Part...')}
@@ -1679,7 +1857,7 @@ async function openAddItemModal(woid, type){
     bodyHtml = `<label>Cari Jasa</label>${comboSearchHtml('ai_labor_combo','Cari Kode / Nama Jasa...')}
       <label>Qty</label><input id="ai_labor_qty" type="number" value="1">`;
   } else {
-    bodyHtml = `<label>Nama Sublet</label><input id="ai_sublet_name">
+    bodyHtml = `<label>Cari / Ketik Nama Sublet</label>${comboSearchHtml('ai_sublet_combo','Cari sublet yang sudah ada, atau ketik nama baru...')}
       <div class="grid3">
         <div><label>Qty</label><input id="ai_sublet_qty" type="number" value="1"></div>
         <div><label>Harga Beli</label><input id="ai_sublet_hb" type="number" value="0"></div>
@@ -1706,6 +1884,13 @@ async function openAddItemModal(woid, type){
       getLabel:l=>`${l.LaborCode} - ${l.LaborName}`, getSub:l=>fmtMoneyFull(l.Harga),
       getValue:l=>l.LaborCode, searchText:l=>`${l.LaborCode} ${l.LaborName}`
     });
+  } else if(type==='sublet'){
+    attachComboSearch('ai_sublet_combo', window.__sublets, {
+      getLabel:s=>s.SubletName,
+      getSub:s=>`Harga Beli: ${fmtMoneyFull(s.HargaBeli)} · Harga Jual: ${fmtMoneyFull(s.HargaJual)}`,
+      getValue:s=>s.SubletName, searchText:s=>s.SubletName,
+      onSelect:s=>{ setFieldValue('ai_sublet_hb', Number(s.HargaBeli)||0); setFieldValue('ai_sublet_hj', Number(s.HargaJual)||0); }
+    });
   }
 }
 async function submitAddItem(woid, type){
@@ -1721,9 +1906,9 @@ async function submitAddItem(woid, type){
     if(!lc){ toast('Pilih jasa terlebih dahulu', true); return; }
     res = await apiPost('addWOLabor', {WOID:woid, LaborCode:lc, Qty:qty});
   } else {
-    const name = val('ai_sublet_name').trim(); const qty=Number(val('ai_sublet_qty'))||0;
+    const name = val('ai_sublet_combo_input').trim(); const qty=Number(val('ai_sublet_qty'))||0;
     const hb=Number(val('ai_sublet_hb'))||0; const hj=Number(val('ai_sublet_hj'))||0;
-    if(!name||qty<=0){ toast('Isi nama sublet dan qty', true); return; }
+    if(!name||qty<=0){ toast('Cari/ketik nama sublet dan isi qty', true); return; }
     res = await apiPost('addWOSublet', {WOID:woid, SubletName:name, Qty:qty, HargaBeli:hb, HargaJual:hj});
   }
   if(res.success){ toast('Item ditambahkan'); closeModal(); viewWorkOrder(woid); renderWorkOrder(); } else toast(res.message,true);
@@ -2806,7 +2991,7 @@ document.getElementById('globalSearch').addEventListener('keydown', async e=>{
 });
 
 /* ================= INIT ================= */
-renderDashboard();
+// Inisialisasi awal (login-gate) sudah dipanggil lebih awal di atas (initBrandLogo + showAppShell/showLoginScreen).
 </script>
 </body>
 </html>
