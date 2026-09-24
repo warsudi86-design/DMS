@@ -3196,6 +3196,11 @@ async function formPDS(){
             <div class="kv"><span>Subtotal (Kotor)</span><b id="wo_subtotal_preview">Rp 0</b></div>
             <div class="kv"><span>Total Diskon</span><b id="wo_diskon_preview">Rp 0</b></div>
             <div class="kv"><span>Total Transaksi</span><b id="wo_total_preview">Rp 0</b></div>
+            <label class="priv-chk" style="margin:10px 0 0;width:100%;box-sizing:border-box;justify-content:flex-start;">
+              <input type="checkbox" id="wo_ppn_toggle" onchange="renderWOLists()"> Kenakan PPN 11%
+            </label>
+            <div class="kv" id="wo_ppn_row" style="display:none;"><span>PPN (11%)</span><b id="wo_ppn_preview">Rp 0</b></div>
+            <div class="kv" id="wo_grandtotal_row" style="display:none;border-top:1px dashed var(--border);padding-top:9px;margin-top:2px;"><span><b>Total Dibayar Customer</b></span><b id="wo_grandtotal_preview" style="font-size:15px;">Rp 0</b></div>
           </div>
         </div>
       </div>
@@ -3294,6 +3299,8 @@ async function printPDS(pdsId){
   if(!res.success){ toast(res.message,true); return; }
   const {header, parts} = res.data;
   const isInvoice = header.Status==='Invoice';
+  const subtotal = Number(header.TotalPDS||0); // subtotal setelah diskon - jadi basis PPN
+  const PPN_RATE = 0.11;
   const body = `
     <div class="print-grid">
       <div><span>No. ${isInvoice?'Invoice':'Transaksi'}</span><b>${esc(isInvoice?(header.InvoiceNumber||header.PDSID):header.PDSID)}</b></div>
@@ -3305,18 +3312,39 @@ async function printPDS(pdsId){
     <table class="doc-table"><colgroup><col style="width:46%"><col style="width:12%"><col style="width:21%"><col style="width:21%"></colgroup><tr><th>Part</th><th class="num">Qty</th><th class="num">Harga</th><th class="num">Subtotal</th></tr>
       ${(parts||[]).map(p=>`<tr><td>${esc(p.PartName)}</td><td class="num">${p.Qty}</td><td class="num">${fmtMoneyFull(p.HargaSatuan)}</td><td class="num">${fmtMoneyFull(p.Subtotal)}</td></tr>`).join('') || '<tr><td colspan="4">Tidak ada part</td></tr>'}
     </table>
-    ${Number(header.Diskon||0)>0?`<div class="print-grid" style="grid-template-columns:1fr;text-align:right;">
-      <div style="display:flex;justify-content:flex-end;gap:18px;"><span>Subtotal</span><b>${fmtMoneyFull(header.TotalPart)}</b></div>
-      <div style="display:flex;justify-content:flex-end;gap:18px;"><span>Diskon</span><b>- ${fmtMoneyFull(header.Diskon)}</b></div>
-    </div>`:''}
-    <div class="print-total">TOTAL ${isInvoice?'INVOICE':'TRANSAKSI'}: ${fmtMoneyFull(header.TotalPDS)}</div>
+    ${isInvoice ? `<div class="print-actions" style="max-width:none;margin:0 0 6px;justify-content:flex-start;">
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;cursor:pointer;">
+        <input type="checkbox" id="inv_ppn_toggle" onchange="toggleInvoicePPN()"> Sertakan PPN 11%
+      </label>
+    </div>` : ''}
+    <div class="print-grid" style="grid-template-columns:1fr;text-align:right;">
+      ${Number(header.Diskon||0)>0?`<div style="display:flex;justify-content:flex-end;gap:18px;"><span>Subtotal</span><b>${fmtMoneyFull(header.TotalPart)}</b></div>
+      <div style="display:flex;justify-content:flex-end;gap:18px;"><span>Diskon</span><b>- ${fmtMoneyFull(header.Diskon)}</b></div>`:''}
+      ${isInvoice ? `<div style="display:flex;justify-content:flex-end;gap:18px;"><span>Subtotal Setelah Diskon</span><b id="inv_subtotal_label">-</b></div>
+      <div id="inv_ppn_row" style="display:none;justify-content:flex-end;gap:18px;"><span>PPN (11%)</span><b id="inv_ppn_label">-</b></div>` : ''}
+    </div>
+    ${isInvoice ? `<div class="print-total">TOTAL INVOICE: <span id="inv_grand_total">-</span></div>` : `<div class="print-total">TOTAL TRANSAKSI: ${fmtMoneyFull(header.TotalPDS)}</div>`}
     ${isInvoice ? `<p style="font-size:11.5px;color:#555;">Invoice ini sah tanpa memerlukan cap/stempel apabila dicetak dari sistem.</p>` : `<p style="font-size:11.5px;color:#555;">*Dokumen ini belum berupa Invoice resmi - proses transaksi ke status Invoice terlebih dahulu di menu Part Direct Sales.</p>`}
     <div class="print-sign">
       <div class="box"><div class="line"></div>Kasir/Part Staff<br>(${esc(header.InvoicedBy||header.CreatedBy||'-')})</div>
       <div class="box"><div class="line"></div>Customer</div>
     </div>
   `;
-  openPrintWindow(buildPrintDocument(isInvoice?'INVOICE':'NOTA PART DIRECT SALES', isInvoice?(header.InvoiceNumber||header.PDSID):header.PDSID, body, getPrintCss()));
+  const script = isInvoice ? `<script>
+    const INV_SUBTOTAL = ${Number(subtotal)||0};
+    const INV_PPN_RATE = ${PPN_RATE};
+    function fmtIDR(n){ return 'Rp ' + Math.round(n).toLocaleString('id-ID'); }
+    function toggleInvoicePPN(){
+      const on = document.getElementById('inv_ppn_toggle').checked;
+      const ppn = on ? INV_SUBTOTAL * INV_PPN_RATE : 0;
+      document.getElementById('inv_subtotal_label').textContent = fmtIDR(INV_SUBTOTAL);
+      document.getElementById('inv_ppn_row').style.display = on ? 'flex' : 'none';
+      document.getElementById('inv_ppn_label').textContent = fmtIDR(ppn);
+      document.getElementById('inv_grand_total').textContent = fmtIDR(INV_SUBTOTAL + ppn);
+    }
+    toggleInvoicePPN();
+  <\/script>` : '';
+  openPrintWindow(buildPrintDocument(isInvoice?'INVOICE':'NOTA PART DIRECT SALES', isInvoice?(header.InvoiceNumber||header.PDSID):header.PDSID, body, getPrintCss(), script));
 }
 
 /* ================= INVENTORY: PO CREATED ================= */
