@@ -3385,9 +3385,9 @@ async function printPDS(pdsId){
 const REMINDER_STATUS_BADGE = {'Belum Dihubungi':'s4', 'Booking Dibuat':'good', 'Ditunda':'s1', 'Servis Di Tempat Lain':'s7', 'Tidak Berminat':'critical', 'Tidak Bisa Dihubungi':'critical'};
 async function renderReminderDue(){
   setMain(skeletonRows(4));
-  const [dueRes, cfgRes] = await Promise.all([apiGet('listReminderDue'), apiGet('getReminderConfig')]);
-  const data = dueRes.data||[];
-  const cfg = cfgRes.data||{IntervalBulan:6, IntervalKm:10000};
+  const res = await apiGet('getReminderPageData');
+  const data = (res.data||{}).due||[];
+  const cfg = (res.data||{}).config||{IntervalBulan:6, IntervalKm:10000};
   window['__rawdata_reminder'] = data;
   const actor = getActor();
   setMain(`
