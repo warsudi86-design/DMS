@@ -468,6 +468,7 @@ const NAV = [
     {id:'karyawan', label:'Karyawan / Role', icon:'customer'},
   ]},
   {group:'Work Order', items:[
+    {id:'estimasi', label:'Estimasi', icon:'card'},
     {id:'workorder', label:'Create New Order (WO)', icon:'wo'},
     {id:'wo-order-query', label:'Order Query', icon:'wo'},
     {id:'wo-completed', label:'Completed', icon:'wo'},
@@ -938,6 +939,7 @@ const views = {
   labormaster: renderLaborMaster,
   karyawan: renderKaryawan,
   workorder: renderWorkOrder,
+  estimasi: renderEstimasi,
   'wo-order-query': renderOrderQuery,
   'wo-completed': ()=>renderWOStage('Completed'),
   'wo-invoice': ()=>renderWOStage('Invoice'),
@@ -1758,6 +1760,7 @@ function logout(){
 
 /* ================= WORK ORDER (KANBAN + LIST) ================= */
 let woCart = { parts:[], labors:[], sublets:[] };
+let woFormMode = 'wo'; // 'wo' = Buat Work Order, 'estimasi' = Buat Estimasi (lihat formEstimasi()) - dipakai addWOPart utk skip cek stok saat mode estimasi.
 let woViewMode = 'kanban';
 const WO_FLOW = ['New','Dispatching','Material Picking','Completed','Invoice','Vehicle Delivery'];
 // Field tanggal per status (cermin WO_STATUS_DATE_FIELD di Code.gs) - dipakai utk hitung trend hari ini vs kemarin di scorecard Board.
@@ -1878,6 +1881,8 @@ async function formWorkOrder(){
   const boot = await getWOFormMasterData();
   window.__customers = boot.customers; window.__vehicles = boot.vehicles; window.__parts = boot.parts; window.__labors = boot.labors; window.__sublets = boot.sublets;
   woCart = { parts:[], labors:[], sublets:[] };
+  woFormMode = 'wo';
+  window.__activeEstimasiID = null;
   const custMap = {}; window.__customers.forEach(c=>custMap[c.CustomerID]=c);
   const vehicleChoices = window.__vehicles.map(v=>({...v, custName:(custMap[v.CustomerID]||{}).Nama||'', custHP:(custMap[v.CustomerID]||{}).NoHP||''}));
   const actor = getActor();
@@ -1886,6 +1891,14 @@ async function formWorkOrder(){
     <div class="drawer-body wide-body">
       <div class="wo-grid">
         <div class="wo-col">
+          <div class="panel" style="background:var(--surface-2);margin-bottom:14px;">
+            <label>Sudah ada Estimasi-nya? Muat dari Nomor Estimasi (opsional)</label>
+            <div class="row-line">
+              <input id="wo_est_search" placeholder="Contoh: EST-260924-0001" style="flex:1;">
+              <button class="btn outline sm" onclick="loadEstimasiIntoForm()">Cari &amp; Muat</button>
+            </div>
+            <div id="wo_est_loaded_info"></div>
+          </div>
           <label>Cari Customer / No Polisi / No Rangka (VIN)</label>
           ${comboSearchHtml('wo_veh_combo', 'Ketik nama, No HP, No Polisi, atau No Rangka...')}
           <input type="hidden" id="wo_cust_id">
@@ -1989,6 +2002,56 @@ async function formWorkOrder(){
   });
   renderWOLists();
 }
+// Muat data dari Estimasi yang sudah pernah dibuat (menu "Estimasi") ke form Buat Work Order ini, supaya
+// SA tidak perlu ketik ulang Customer/Kendaraan/Part/Jasa/Sublet dari nol kalau customer jadi service.
+// Harga part/jasa SENGAJA diambil ulang dari harga TERKINI (bukan harga saat Estimasi dibuat) karena harga
+// atau stok bisa saja sudah berubah sejak estimasi dibuat.
+async function loadEstimasiIntoForm(){
+  const idVal = (val('wo_est_search')||'').trim();
+  if(!idVal){ toast('Ketik nomor Estimasi terlebih dahulu', true); return; }
+  const res = await apiGet('getEstimasi', {id:idVal});
+  if(!res.success){ toast(res.message||'Estimasi tidak ditemukan', true); return; }
+  const {header:est, parts, labors, sublets} = res.data;
+  if(est.Status !== 'Aktif'){ toast('Estimasi ini sudah berstatus "'+est.Status+'", tidak bisa dimuat lagi.', true); return; }
+  const veh = window.__vehicles.find(v=>String(v.VehicleID)===String(est.VehicleID));
+  if(!veh){ toast('Kendaraan pada Estimasi ini sudah tidak ditemukan di Master Vehicle.', true); return; }
+  const cust = window.__customers.find(c=>String(c.CustomerID)===String(est.CustomerID));
+  document.getElementById('wo_cust_id').value = est.CustomerID;
+  setFieldValue('wo_veh_combo', veh.VehicleID);
+  const vehInput = document.getElementById('wo_veh_combo_input');
+  if(vehInput) vehInput.value = veh.NoPolisi + ' — ' + (cust?cust.Nama:'(tanpa nama)');
+  const sec = document.getElementById('wo_items_section'); if(sec) sec.classList.remove('locked');
+  const hint = document.getElementById('wo_lock_hint'); if(hint) hint.style.display = 'none';
+  setFieldValue('wo_jenis', est.JenisWO||'General Repair');
+  setFieldValue('wo_km', est.KM||'');
+  setFieldValue('wo_keluhan', est.Keluhan||'');
+
+  woCart = { parts:[], labors:[], sublets:[] };
+  let hilang = [];
+  (parts||[]).forEach(p=>{
+    const cur = window.__parts.find(x=>String(x.PartNumber)===String(p.PartNumber));
+    if(cur) woCart.parts.push({PartNumber:cur.PartNumber, PartName:cur.PartName, Qty:Number(p.Qty)||1, Harga:cur.HargaJual, DiskonPersen:0});
+    else hilang.push(p.PartName+' (part sudah tidak ada di Part Master)');
+  });
+  (labors||[]).forEach(l=>{
+    const cur = window.__labors.find(x=>String(x.LaborCode)===String(l.LaborCode));
+    if(cur) woCart.labors.push({LaborCode:cur.LaborCode, LaborName:cur.LaborName, Qty:Number(l.Qty)||1, Harga:cur.Harga, DiskonPersen:0});
+    else hilang.push(l.LaborName+' (jasa sudah tidak ada di Labor Master)');
+  });
+  (sublets||[]).forEach(s=>{
+    woCart.sublets.push({SubletName:s.SubletName, Qty:Number(s.Qty)||1, HargaBeli:Number(s.HargaBeli)||0, HargaJual:Number(s.HargaJual)||0, DiskonPersen:0});
+  });
+  renderWOLists();
+  window.__activeEstimasiID = est.EstimasiID;
+  const info = document.getElementById('wo_est_loaded_info');
+  if(info) info.innerHTML = `<p class="sub" style="margin:6px 0 0;color:var(--good,#0a8f0a);">✓ Estimasi <b>${esc(est.EstimasiID)}</b> dimuat. Harga part/jasa sudah disesuaikan ke harga terkini - cek ulang sebelum simpan. <a href="#" onclick="event.preventDefault();clearLoadedEstimasi();">Batal pakai estimasi ini</a></p>`;
+  toast('Estimasi '+est.EstimasiID+' dimuat ke form.'+(hilang.length?(' Catatan: '+hilang.join(', ')+' tidak ikut dimuat.'):''));
+}
+function clearLoadedEstimasi(){
+  window.__activeEstimasiID = null;
+  const info = document.getElementById('wo_est_loaded_info'); if(info) info.innerHTML='';
+  setFieldValue('wo_est_search','');
+}
 async function addWOPart(){
   const pn = val('wo_part_combo');
   if(!pn){ toast('Pilih part terlebih dahulu dari hasil pencarian', true); return; }
@@ -2001,8 +2064,12 @@ async function addWOPart(){
   const part = window.__parts.find(p=>String(p.PartNumber)===String(pn));
   if(!part){ toast('Part tidak ditemukan, silakan cari ulang', true); return; }
   const stokTersedia = Number(part.StokAkhir)||0;
-  if(stokTersedia<=0){ toast('Stok part "'+part.PartName+'" saat ini kosong (0), tidak bisa ditambahkan', true); return; }
-  if(qty > stokTersedia){ toast('Qty ('+qty+') melebihi stok tersedia ('+stokTersedia+') untuk part "'+part.PartName+'"', true); return; }
+  // Mode Estimasi: part dgn stok kosong/kurang tetap boleh diestimasikan (belum ada komitmen barang keluar,
+  // sering justru itu tujuan customer minta estimasi - cek dulu apa perlu pesan part sebelum service beneran).
+  if(woFormMode!=='estimasi'){
+    if(stokTersedia<=0){ toast('Stok part "'+part.PartName+'" saat ini kosong (0), tidak bisa ditambahkan', true); return; }
+    if(qty > stokTersedia){ toast('Qty ('+qty+') melebihi stok tersedia ('+stokTersedia+') untuk part "'+part.PartName+'"', true); return; }
+  }
   if(woCart.parts.some(p=>String(p.PartNumber)===String(part.PartNumber))){
     toast('Part "'+part.PartName+'" sudah ada di daftar item WO ini. Hapus dulu baris yang sudah ada kalau mau ubah qty/diskon.', true); return;
   }
@@ -2127,7 +2194,14 @@ async function submitWorkOrder(){
     sublets: woCart.sublets.map(s=>({SubletName:s.SubletName, Qty:s.Qty, HargaBeli:s.HargaBeli, HargaJual:s.HargaJual}))
   };
   const res = await apiPost('createWorkOrder', payload);
-  if(res.success){ toast('Work Order dibuat: '+res.id); invalidateWOFormCache(); closeDrawer(); refreshCurrentView(); } else toast(res.message,true);
+  if(res.success){
+    toast('Work Order dibuat: '+res.id);
+    if(window.__activeEstimasiID){
+      await apiPost('convertEstimasi', {EstimasiID:window.__activeEstimasiID, WOID:res.id, ActorName:actor.name});
+      window.__activeEstimasiID = null;
+    }
+    invalidateWOFormCache(); closeDrawer(); refreshCurrentView();
+  } else toast(res.message,true);
 }
 async function viewWorkOrder(woid){
   const res = await apiGet('getWorkOrder', {id:woid});
@@ -2160,6 +2234,7 @@ async function viewWorkOrder(woid){
         <div class="kv"><span>SA</span><b>${esc(header.SA)||'-'}</b></div>
         <div class="kv"><span>Mekanik</span><b>${esc(header.Mekanik)||'-'}</b></div>
         <div class="kv"><span>KM</span><b>${esc(header.KM)||'-'}</b></div>
+        ${header.InvoiceNumber ? `<div class="kv"><span>No. Invoice</span><b>${esc(header.InvoiceNumber)}</b></div>` : ''}
       </div>
       <p class="muted" style="font-size:13px;">Keluhan: ${esc(header.Keluhan)||'-'}</p>
 
@@ -2446,6 +2521,7 @@ async function renderWOStage(status){
         {key:'TglWO', label:'Tgl', render:w=>fmtDate(w.TglWO)},
         {key:'NamaCustomer', label:'Customer'}, {key:'NoPolisi', label:'No Polisi'}, {key:'JenisWO', label:'Jenis'},
         {key:'Mekanik', label:'Mekanik', render:w=>esc(w.Mekanik||'-')},
+        ...(['Invoice','Vehicle Delivery'].indexOf(status)!==-1 ? [{key:'InvoiceNumber', label:'No. Invoice', render:w=>esc(w.InvoiceNumber||'-')}] : []),
         {key:'TotalWO', label:'Total', numeric:true, render:w=>fmtMoneyFull(w.TotalWO)}
       ],
       rowActions:w=>`<button class="btn ghost sm" onclick="viewWorkOrder('${w.WOID}')">Detail</button>`
@@ -2556,6 +2632,8 @@ function getPrintCss(){
     .print-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px 18px;font-size:12.5px;margin-bottom:16px;}
     .print-grid div span{color:#666;display:inline-block;min-width:110px;}
     .print-page table{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:10px;}
+    .print-page table.doc-table{table-layout:fixed;}
+    .print-page table.doc-table td{word-wrap:break-word;}
     .print-page th,.print-page td{border:1px solid #ccc;padding:6px 8px;text-align:left;}
     .print-page th{background:#f0f0f0;}
     .print-page td.num,.print-page th.num{text-align:right;}
@@ -2585,13 +2663,13 @@ async function printWorkOrder(woid){
       <div><span>Status</span><b>${esc(header.Status)}</b></div>
     </div>
     <p style="font-size:12.5px;"><b>Keluhan:</b> ${esc(header.Keluhan)||'-'}</p>
-    <table><tr><th>Part</th><th class="num">Qty</th><th class="num">Harga</th><th class="num">Subtotal</th></tr>
+    <table class="doc-table"><colgroup><col style="width:46%"><col style="width:12%"><col style="width:21%"><col style="width:21%"></colgroup><tr><th>Part</th><th class="num">Qty</th><th class="num">Harga</th><th class="num">Subtotal</th></tr>
       ${parts.map(p=>`<tr><td>${esc(p.PartName)}</td><td class="num">${p.Qty}</td><td class="num">${fmtMoneyFull(p.HargaSatuan)}</td><td class="num">${fmtMoneyFull(p.Subtotal)}</td></tr>`).join('') || '<tr><td colspan="4">Tidak ada part</td></tr>'}
     </table>
-    <table><tr><th>Jasa</th><th class="num">Qty</th><th class="num">Harga</th><th class="num">Subtotal</th></tr>
+    <table class="doc-table"><colgroup><col style="width:46%"><col style="width:12%"><col style="width:21%"><col style="width:21%"></colgroup><tr><th>Jasa</th><th class="num">Qty</th><th class="num">Harga</th><th class="num">Subtotal</th></tr>
       ${labors.map(l=>`<tr><td>${esc(l.LaborName)}</td><td class="num">${l.Qty}</td><td class="num">${fmtMoneyFull(l.HargaSatuan)}</td><td class="num">${fmtMoneyFull(l.Subtotal)}</td></tr>`).join('') || '<tr><td colspan="4">Tidak ada jasa</td></tr>'}
     </table>
-    ${(sublets||[]).length ? `<table><tr><th>Sublet</th><th class="num">Qty</th><th class="num">Harga</th><th class="num">Subtotal</th></tr>
+    ${(sublets||[]).length ? `<table class="doc-table"><colgroup><col style="width:46%"><col style="width:12%"><col style="width:21%"><col style="width:21%"></colgroup><tr><th>Sublet</th><th class="num">Qty</th><th class="num">Harga</th><th class="num">Subtotal</th></tr>
       ${sublets.map(s=>`<tr><td>${esc(s.SubletName)}</td><td class="num">${s.Qty}</td><td class="num">${fmtMoneyFull(s.HargaJual)}</td><td class="num">${fmtMoneyFull(s.Subtotal)}</td></tr>`).join('')}
     </table>`:''}
     ${Number(header.Diskon||0)>0?`<div class="print-grid" style="grid-template-columns:1fr;text-align:right;">
@@ -2623,14 +2701,15 @@ async function printInvoice(woid){
   const PPN_RATE = 0.11;
   const body = `
     <div class="print-grid">
-      <div><span>No. Invoice (WO)</span><b>${esc(header.WOID)}</b></div>
+      <div><span>No. Invoice</span><b>${esc(header.InvoiceNumber||'-')}</b></div>
+      <div><span>No. Work Order</span><b>${esc(header.WOID)}</b></div>
       <div><span>Tanggal Invoice</span><b>${fmtDate(header.TglInvoice||header.TglWO)}</b></div>
       <div><span>Customer</span><b>${esc(header.NamaCustomer)}</b></div>
       <div><span>No Polisi</span><b>${esc(header.NoPolisi)}</b></div>
       <div><span>Jenis WO</span><b>${esc(header.JenisWO)}</b></div>
       <div><span>Kasir</span><b>${esc(header.InvoicedBy)||'-'}</b></div>
     </div>
-    <table><tr><th>Uraian</th><th class="num">Qty</th><th class="num">Harga</th><th class="num">Subtotal</th></tr>
+    <table class="doc-table"><colgroup><col style="width:46%"><col style="width:12%"><col style="width:21%"><col style="width:21%"></colgroup><tr><th>Uraian</th><th class="num">Qty</th><th class="num">Harga</th><th class="num">Subtotal</th></tr>
       ${parts.map(p=>`<tr><td>[Part] ${esc(p.PartName)}</td><td class="num">${p.Qty}</td><td class="num">${fmtMoneyFull(p.HargaSatuan)}</td><td class="num">${fmtMoneyFull(p.Subtotal)}</td></tr>`).join('')}
       ${labors.map(l=>`<tr><td>[Jasa] ${esc(l.LaborName)}</td><td class="num">${l.Qty}</td><td class="num">${fmtMoneyFull(l.HargaSatuan)}</td><td class="num">${fmtMoneyFull(l.Subtotal)}</td></tr>`).join('')}
       ${(sublets||[]).map(s=>`<tr><td>[Sublet] ${esc(s.SubletName)}</td><td class="num">${s.Qty}</td><td class="num">${fmtMoneyFull(s.HargaJual)}</td><td class="num">${fmtMoneyFull(s.Subtotal)}</td></tr>`).join('')}
@@ -2667,7 +2746,264 @@ async function printInvoice(woid){
     }
     toggleInvoicePPN();
   <\/script>`;
-  openPrintWindow(buildPrintDocument('INVOICE', header.WOID, body, getPrintCss(), script));
+  openPrintWindow(buildPrintDocument('INVOICE', header.InvoiceNumber||header.WOID, body, getPrintCss(), script));
+}
+
+/* ================= ESTIMASI (perkiraan biaya sebelum jadi Work Order) =================
+   Struktur & form-nya sengaja sama persis dgn Buat Work Order (reuse woCart, addWOPart/addWOLabor/addWOSublet,
+   renderWOLists) - bedanya: (a) tidak mengunci/memotong stok sama sekali, (b) tersimpan terpisah di menu
+   Estimasi sampai customer benar-benar jadi service, baru "dimuat" ke form Buat Work Order lewat nomor
+   Estimasi-nya (lihat loadEstimasiIntoForm() di atas). Kalau customer batal, cukup dibatalkan (bukan dianggap
+   WO gagal/cancel). */
+async function renderEstimasi(){
+  setMain(skeletonRows(4));
+  const res = await apiGet('listEstimasi');
+  const data = (res.data||[]).sort((a,b)=>new Date(b.CreatedAt)-new Date(a.CreatedAt));
+  window['__rawdata_estimasi'] = data;
+  setMain(`
+    <div class="page-head">
+      <div><h2>Estimasi</h2><p>Perkiraan biaya sebelum jadi Work Order - dipakai kalau customer belum tentu lanjut service (${data.length} estimasi)</p></div>
+      <button class="btn" onclick="formEstimasi()">${icon('plus')} Buat Estimasi</button>
+    </div>
+    ${filterBarHtml('estimasi', [
+      {key:'Status', label:'Status', options:['Aktif','Dikonversi','Dibatalkan']},
+      {key:'JenisWO', label:'Jenis', options:[...new Set(data.map(w=>w.JenisWO).filter(Boolean))]}
+    ], 'TglEstimasi')}
+    <div class="panel">${dataTable({
+      id:'estimasi', rows:data, searchKeys:['EstimasiID','NamaCustomer','NoPolisi'],
+      columns:[
+        {key:'EstimasiID', label:'No. Estimasi', render:w=>`<span class="link-id" onclick="viewEstimasi('${w.EstimasiID}')">${esc(w.EstimasiID)}</span>`},
+        {key:'TglEstimasi', label:'Tgl', render:w=>fmtDate(w.TglEstimasi)},
+        {key:'NamaCustomer', label:'Customer'}, {key:'NoPolisi', label:'No Polisi'}, {key:'JenisWO', label:'Jenis'},
+        {key:'Status', label:'Status', render:w=>statusBadge(w.Status, {'Aktif':'s1','Dikonversi':'good','Dibatalkan':'critical'})},
+        {key:'TotalEstimasi', label:'Total', numeric:true, render:w=>fmtMoneyFull(w.TotalEstimasi)}
+      ],
+      rowActions:w=>`<button class="btn ghost sm" onclick="viewEstimasi('${w.EstimasiID}')">Detail</button>`
+    })}</div>
+  `);
+  initTable('estimasi');
+}
+async function formEstimasi(){
+  const boot = await getWOFormMasterData();
+  window.__customers = boot.customers; window.__vehicles = boot.vehicles; window.__parts = boot.parts; window.__labors = boot.labors; window.__sublets = boot.sublets;
+  woCart = { parts:[], labors:[], sublets:[] };
+  woFormMode = 'estimasi';
+  const custMap = {}; window.__customers.forEach(c=>custMap[c.CustomerID]=c);
+  const vehicleChoices = window.__vehicles.map(v=>({...v, custName:(custMap[v.CustomerID]||{}).Nama||'', custHP:(custMap[v.CustomerID]||{}).NoHP||''}));
+  const actor = getActor();
+  openDrawer(`
+    <div class="drawer-head"><h3>Buat Estimasi</h3><button class="drawer-close" onclick="closeDrawer()">&times;</button></div>
+    <div class="drawer-body wide-body">
+      <p class="sub" style="margin:0 0 14px;">Estimasi belum mengunci stok maupun jadwal - cocok dipakai saat customer masih tanya-tanya perkiraan biaya dan belum pasti jadi service. Kalau customer jadi service, cari nomor Estimasi ini di form <b>Buat Work Order</b> supaya tidak perlu input ulang.</p>
+      <div class="wo-grid">
+        <div class="wo-col">
+          <label>Cari Customer / No Polisi / No Rangka (VIN)</label>
+          ${comboSearchHtml('wo_veh_combo', 'Ketik nama, No HP, No Polisi, atau No Rangka...')}
+          <input type="hidden" id="wo_cust_id">
+          <p class="sub" style="margin:6px 0 14px;">Kendaraan belum terdaftar? Tambahkan dulu lewat menu Customer / Vehicle.</p>
+          <div class="grid3">
+            <div><label>Jenis WO</label><select id="wo_jenis"><option>General Repair</option><option>Body Repair</option></select></div>
+            <div><label>SA</label><input id="wo_sa" value="${esc(actor.name||'')}" ${actor.role==='SA'?'disabled title="Otomatis nama Anda yang login sebagai SA"':''}></div>
+            <div><label>KM</label><input id="wo_km" type="number"></div>
+          </div>
+          <label>Keluhan</label><textarea id="wo_keluhan"></textarea>
+
+          <div id="wo_items_section" class="wo-items-section locked">
+            <div class="wo-lock-hint" id="wo_lock_hint">🔒 Pilih dulu Customer / Kendaraan di atas sebelum mengisi Jasa, Part, dan Sublet.</div>
+
+            <h3 style="font-size:13.5px;margin-bottom:8px;">Part (dari Part Master)</h3>
+            <div class="row-line">
+              <div style="flex:2"><label style="font-size:11px;">Cari Part</label>${comboSearchHtml('wo_part_combo','Cari No Part / Nama Part...')}</div>
+              <div style="width:60px"><label style="font-size:11px;">Qty</label><input id="wo_part_qty" type="number" value="1"></div>
+              <div style="width:70px"><label style="font-size:11px;">Diskon</label><input id="wo_part_disc" type="number" value="0" step="0.01" class="item-disc-input" title="Diskon (mis. 0.1 = 10%)" placeholder="0.1"></div>
+              <button class="btn accent sm" onclick="addWOPart()">+ Add</button>
+            </div>
+            <div id="wo_part_list"></div>
+
+            <h3 style="font-size:13.5px;margin-bottom:8px;">Labor (dari Labor Master)</h3>
+            <div class="row-line">
+              <div style="flex:2"><label style="font-size:11px;">Cari Jasa</label>${comboSearchHtml('wo_labor_combo','Cari Kode / Nama Jasa...')}</div>
+              <div style="width:60px"><label style="font-size:11px;">Qty</label><input id="wo_labor_qty" type="number" value="1"></div>
+              <div style="width:70px"><label style="font-size:11px;">Diskon</label><input id="wo_labor_disc" type="number" value="0" step="0.01" class="item-disc-input" title="Diskon (mis. 0.1 = 10%)" placeholder="0.1"></div>
+              <button class="btn accent sm" onclick="addWOLabor()">+ Add</button>
+            </div>
+            <div id="wo_labor_list"></div>
+
+            <h3 style="font-size:13.5px;margin-bottom:2px;">Sublet (Pekerjaan Pihak Ketiga)</h3>
+            <p class="sub" style="margin:0 0 8px;">Cari dulu apakah sublet ini sudah pernah dipakai sebelumnya (harga otomatis terisi) - baru ketik nama baru kalau memang belum ada, supaya tidak dobel.</p>
+            <div class="grid3">
+              <div><label>Cari / Ketik Nama Sublet</label>${comboSearchHtml('wo_sublet_combo','Cari sublet yang sudah ada, atau ketik nama baru...')}</div>
+              <div><label>Qty</label><input id="wo_sublet_qty" type="number" value="1"></div>
+              <div><label>Harga Beli (Vendor)</label><input id="wo_sublet_hb" type="number" value="0"></div>
+            </div>
+            <div class="row-line">
+              <div style="flex:1"><label>Harga Jual (Customer)</label><input id="wo_sublet_hj" type="number" value="0"></div>
+              <div style="width:70px"><label>Disc%</label><input id="wo_sublet_disc" type="number" value="0" step="0.01" placeholder="0.1"></div>
+              <button class="btn accent sm" onclick="addWOSublet()">+ Tambah ke Item Sublet</button>
+            </div>
+            <div id="wo_sublet_list"></div>
+          </div>
+        </div>
+        <div class="wo-col wo-col-right">
+          <h3 style="font-size:13.5px;margin-bottom:10px;">Ringkasan</h3>
+          <div class="panel" style="background:var(--surface);">
+            <div class="kv"><span>Subtotal (Kotor)</span><b id="wo_subtotal_preview">Rp 0</b></div>
+            <div class="kv"><span>Total Diskon</span><b id="wo_diskon_preview">Rp 0</b></div>
+            <div class="kv"><span>Estimasi Total</span><b id="wo_total_preview">Rp 0</b></div>
+            <label class="priv-chk" style="margin:10px 0 0;width:100%;box-sizing:border-box;justify-content:flex-start;">
+              <input type="checkbox" id="wo_ppn_toggle" onchange="renderWOLists()"> Kenakan PPN 11%
+            </label>
+            <div class="kv" id="wo_ppn_row" style="display:none;"><span>PPN (11%)</span><b id="wo_ppn_preview">Rp 0</b></div>
+            <div class="kv" id="wo_grandtotal_row" style="display:none;border-top:1px dashed var(--border);padding-top:9px;margin-top:2px;"><span><b>Total Dibayar Customer</b></span><b id="wo_grandtotal_preview" style="font-size:15px;">Rp 0</b></div>
+          </div>
+          <p class="sub" style="margin:8px 0 2px;">Rasio Diskon: <b id="wo_diskon_ratio_text">0%</b></p>
+          <div class="disc-ratio-bar" id="wo_diskon_ratio_bar"><div style="width:0%"></div></div>
+          <div id="wo_diskon_warning"></div>
+        </div>
+      </div>
+    </div>
+    <div class="drawer-foot"><button class="btn secondary" onclick="closeDrawer()">Batal</button>
+    <button class="btn" id="wo_submit_btn" onclick="submitEstimasi()">Simpan Estimasi</button></div>
+  `, true);
+  attachComboSearch('wo_veh_combo', vehicleChoices, {
+    getLabel:v=>`${v.NoPolisi} — ${v.custName||'(tanpa nama)'}`,
+    getSub:v=>`${v.Brand||''} ${v.Model||''} · Rangka: ${v.NoRangka||'-'}${v.custHP?' · '+v.custHP:''}`,
+    getValue:v=>v.VehicleID,
+    searchText:v=>[v.NoPolisi,v.NoRangka,v.NoMesin,v.custName,v.custHP].join(' '),
+    onSelect:v=>{
+      document.getElementById('wo_cust_id').value = v.CustomerID;
+      const sec = document.getElementById('wo_items_section');
+      if(sec) sec.classList.remove('locked');
+      const hint = document.getElementById('wo_lock_hint');
+      if(hint) hint.style.display = 'none';
+    }
+  });
+  attachComboSearch('wo_part_combo', window.__parts, {
+    getLabel:p=>`${p.PartNumber} - ${p.PartName}`,
+    getSub:p=>Number(p.StokAkhir)<=0 ? `⚠ STOK HABIS (tetap bisa diestimasikan) · ${fmtMoneyFull(p.HargaJual)}` : `Stok: ${p.StokAkhir} · ${fmtMoneyFull(p.HargaJual)}`,
+    getValue:p=>p.PartNumber,
+    searchText:p=>`${p.PartNumber} ${p.PartName}`
+  });
+  attachComboSearch('wo_labor_combo', window.__labors, {
+    getLabel:l=>`${l.LaborCode} - ${l.LaborName}`,
+    getSub:l=>fmtMoneyFull(l.Harga),
+    getValue:l=>l.LaborCode,
+    searchText:l=>`${l.LaborCode} ${l.LaborName}`
+  });
+  attachComboSearch('wo_sublet_combo', window.__sublets, {
+    getLabel:s=>s.SubletName,
+    getSub:s=>`Harga Beli: ${fmtMoneyFull(s.HargaBeli)} · Harga Jual: ${fmtMoneyFull(s.HargaJual)}`,
+    getValue:s=>s.SubletName,
+    searchText:s=>s.SubletName,
+    onSelect:s=>{ setFieldValue('wo_sublet_hb', Number(s.HargaBeli)||0); setFieldValue('wo_sublet_hj', Number(s.HargaJual)||0); }
+  });
+  renderWOLists();
+}
+async function submitEstimasi(){
+  const custId = val('wo_cust_id'); const vehId = val('wo_veh_combo');
+  if(!custId || !vehId){ toast('Pilih Customer / Kendaraan terlebih dahulu lewat kotak pencarian', true); return; }
+  const grossOf = arr => arr.reduce((s,x)=>s+(x.Harga!==undefined?x.Harga:x.HargaJual)*x.Qty,0);
+  const discOf = arr => arr.reduce((s,x)=>s+((x.Harga!==undefined?x.Harga:x.HargaJual)*x.Qty)*(x.DiskonPersen||0),0);
+  const totalDiskon = discOf(woCart.parts) + discOf(woCart.labors) + discOf(woCart.sublets);
+  const actor = getActor();
+  const payload = {
+    CustomerID: custId, VehicleID: vehId, JenisWO: val('wo_jenis'),
+    SA: val('wo_sa'), KM: val('wo_km'), Keluhan: val('wo_keluhan'), Diskon: totalDiskon,
+    ActorRole: actor.role, ActorName: actor.name,
+    parts: woCart.parts.map(p=>({PartNumber:p.PartNumber, Qty:p.Qty})),
+    labors: woCart.labors.map(l=>({LaborCode:l.LaborCode, Qty:l.Qty})),
+    sublets: woCart.sublets.map(s=>({SubletName:s.SubletName, Qty:s.Qty, HargaBeli:s.HargaBeli, HargaJual:s.HargaJual}))
+  };
+  const res = await apiPost('createEstimasi', payload);
+  if(res.success){ toast('Estimasi dibuat: '+res.id); closeDrawer(); renderEstimasi(); } else toast(res.message,true);
+}
+async function viewEstimasi(estId){
+  const res = await apiGet('getEstimasi', {id:estId});
+  if(!res.success){ toast(res.message,true); return; }
+  const {header, parts, labors, sublets} = res.data;
+  const subtotalKotor = Number(header.TotalPart||0)+Number(header.TotalLabor||0)+Number(header.TotalSublet||0);
+  openDrawer(`
+    <div class="drawer-head"><h3>Estimasi ${esc(header.EstimasiID)}</h3><button class="drawer-close" onclick="closeDrawer()">&times;</button></div>
+    <div class="drawer-body">
+      <div class="grid3">
+        <div class="kv"><span>Status</span><b>${statusBadge(header.Status, {'Aktif':'s1','Dikonversi':'good','Dibatalkan':'critical'})}</b></div>
+        <div class="kv"><span>Customer</span><b>${esc(header.NamaCustomer)}</b></div>
+        <div class="kv"><span>No Polisi</span><b>${esc(header.NoPolisi)}</b></div>
+        <div class="kv"><span>Jenis</span><b>${esc(header.JenisWO)}</b></div>
+        <div class="kv"><span>SA</span><b>${esc(header.SA)||'-'}</b></div>
+        <div class="kv"><span>KM</span><b>${esc(header.KM)||'-'}</b></div>
+      </div>
+      <p class="muted" style="font-size:13px;">Keluhan: ${esc(header.Keluhan)||'-'}</p>
+      ${header.Status==='Dikonversi' ? `<div class="warn-box">✓ Sudah dikonversi menjadi Work Order <b>${esc(header.ConvertedToWOID)}</b> pada ${fmtDate(header.ConvertedAt)}.</div>`:''}
+      ${header.Status==='Dibatalkan' ? `<div class="danger-box">⚠ Estimasi ini <b>DIBATALKAN</b> oleh ${esc(header.CancelledBy||'-')} pada ${fmtDate(header.TglCancel)}.<br>Alasan: ${esc(header.CancelReason||'-')}</div>`:''}
+
+      <h3 style="font-size:13.5px;margin:14px 0 8px;">Part</h3>
+      <table><tr><th>Part</th><th>Qty</th><th>Harga</th><th>Subtotal</th></tr>
+        ${(parts||[]).map(p=>`<tr><td>${esc(p.PartName)}</td><td>${p.Qty}</td><td>${fmtMoneyFull(p.HargaSatuan)}</td><td>${fmtMoneyFull(p.Subtotal)}</td></tr>`).join('') || `<tr><td colspan="4">${emptyState('Tidak ada part')}</td></tr>`}
+      </table>
+      <h3 style="font-size:13.5px;margin:14px 0 8px;">Labor</h3>
+      <table><tr><th>Jasa</th><th>Qty</th><th>Harga</th><th>Subtotal</th></tr>
+        ${(labors||[]).map(l=>`<tr><td>${esc(l.LaborName)}</td><td>${l.Qty}</td><td>${fmtMoneyFull(l.HargaSatuan)}</td><td>${fmtMoneyFull(l.Subtotal)}</td></tr>`).join('') || `<tr><td colspan="4">${emptyState('Tidak ada jasa')}</td></tr>`}
+      </table>
+      <h3 style="font-size:13.5px;margin:14px 0 8px;">Sublet</h3>
+      <table><tr><th>Sublet</th><th>Qty</th><th>Harga Jual</th><th>Subtotal</th></tr>
+        ${(sublets||[]).map(s=>`<tr><td>${esc(s.SubletName)}</td><td>${s.Qty}</td><td>${fmtMoneyFull(s.HargaJual)}</td><td>${fmtMoneyFull(s.Subtotal)}</td></tr>`).join('') || `<tr><td colspan="4">${emptyState('Tidak ada sublet')}</td></tr>`}
+      </table>
+      <div class="kv" style="margin-top:8px;"><span>Subtotal (Part+Labor+Sublet)</span><b>${fmtMoneyFull(subtotalKotor)}</b></div>
+      ${Number(header.Diskon||0)>0?`<div class="kv"><span>Diskon</span><b>- ${fmtMoneyFull(header.Diskon)}</b></div>`:''}
+      <div class="kv" style="font-size:15px;margin-top:4px;"><span>Total Estimasi</span><b>${fmtMoneyFull(header.TotalEstimasi)}</b></div>
+      ${header.Status==='Aktif' ? `<p class="sub" style="margin-top:10px;">💡 Kalau customer jadi service, buka menu <b>Create New Order (WO)</b> lalu masukkan nomor <b>${esc(header.EstimasiID)}</b> di kotak "Muat dari Nomor Estimasi" supaya tidak perlu input ulang.</p>`:''}
+    </div>
+    <div class="drawer-foot">
+      <div style="display:flex;gap:8px;">
+        <button class="btn secondary" onclick="closeDrawer()">Tutup</button>
+        <button class="btn ghost" onclick="printEstimasi('${header.EstimasiID}')">🖨 Cetak Estimasi</button>
+      </div>
+      ${header.Status==='Aktif' ? `<button class="btn critical" onclick="doCancelEstimasi('${header.EstimasiID}')">${icon('warning')} Batalkan Estimasi</button>` : ''}
+    </div>
+  `);
+}
+function doCancelEstimasi(estId){
+  const reason = prompt('Alasan pembatalan Estimasi ini (mis. "Customer batal service"):');
+  if(!reason){ toast('Pembatalan dibatalkan, alasan wajib diisi.', true); return; }
+  cancelEstimasiConfirmed(estId, reason);
+}
+async function cancelEstimasiConfirmed(estId, reason){
+  const actor = getActor();
+  const res = await apiPost('cancelEstimasi', {EstimasiID:estId, Reason:reason, ActorName:actor.name});
+  if(res.success){ toast('Estimasi dibatalkan'); closeDrawer(); renderEstimasi(); } else toast(res.message,true);
+}
+async function printEstimasi(estId){
+  const res = await apiGet('getEstimasi', {id:estId});
+  if(!res.success){ toast(res.message,true); return; }
+  const {header, parts, labors, sublets} = res.data;
+  const body = `
+    <div class="print-grid">
+      <div><span>No. Estimasi</span><b>${esc(header.EstimasiID)}</b></div>
+      <div><span>Tanggal</span><b>${fmtDate(header.TglEstimasi)}</b></div>
+      <div><span>Customer</span><b>${esc(header.NamaCustomer)}</b></div>
+      <div><span>No Polisi</span><b>${esc(header.NoPolisi)}</b></div>
+      <div><span>Jenis</span><b>${esc(header.JenisWO)}</b></div>
+      <div><span>SA</span><b>${esc(header.SA)||'-'}</b></div>
+    </div>
+    <p style="font-size:12.5px;"><b>Keluhan:</b> ${esc(header.Keluhan)||'-'}</p>
+    <table class="doc-table"><colgroup><col style="width:46%"><col style="width:12%"><col style="width:21%"><col style="width:21%"></colgroup><tr><th>Part</th><th class="num">Qty</th><th class="num">Harga</th><th class="num">Subtotal</th></tr>
+      ${(parts||[]).map(p=>`<tr><td>${esc(p.PartName)}</td><td class="num">${p.Qty}</td><td class="num">${fmtMoneyFull(p.HargaSatuan)}</td><td class="num">${fmtMoneyFull(p.Subtotal)}</td></tr>`).join('') || '<tr><td colspan="4">Tidak ada part</td></tr>'}
+    </table>
+    <table class="doc-table"><colgroup><col style="width:46%"><col style="width:12%"><col style="width:21%"><col style="width:21%"></colgroup><tr><th>Jasa</th><th class="num">Qty</th><th class="num">Harga</th><th class="num">Subtotal</th></tr>
+      ${(labors||[]).map(l=>`<tr><td>${esc(l.LaborName)}</td><td class="num">${l.Qty}</td><td class="num">${fmtMoneyFull(l.HargaSatuan)}</td><td class="num">${fmtMoneyFull(l.Subtotal)}</td></tr>`).join('') || '<tr><td colspan="4">Tidak ada jasa</td></tr>'}
+    </table>
+    ${(sublets||[]).length ? `<table class="doc-table"><colgroup><col style="width:46%"><col style="width:12%"><col style="width:21%"><col style="width:21%"></colgroup><tr><th>Sublet</th><th class="num">Qty</th><th class="num">Harga</th><th class="num">Subtotal</th></tr>
+      ${sublets.map(s=>`<tr><td>${esc(s.SubletName)}</td><td class="num">${s.Qty}</td><td class="num">${fmtMoneyFull(s.HargaJual)}</td><td class="num">${fmtMoneyFull(s.Subtotal)}</td></tr>`).join('')}
+    </table>`:''}
+    ${Number(header.Diskon||0)>0?`<div class="print-grid" style="grid-template-columns:1fr;text-align:right;">
+      <div style="display:flex;justify-content:flex-end;gap:18px;"><span>Subtotal</span><b>${fmtMoneyFull(Number(header.TotalPart||0)+Number(header.TotalLabor||0)+Number(header.TotalSublet||0))}</b></div>
+      <div style="display:flex;justify-content:flex-end;gap:18px;"><span>Diskon</span><b>- ${fmtMoneyFull(header.Diskon)}</b></div>
+    </div>`:''}
+    <div class="print-total">Total Estimasi: ${fmtMoneyFull(header.TotalEstimasi)}</div>
+    <p style="font-size:11.5px;color:#555;">*Estimasi ini adalah perkiraan biaya dan dapat berubah menyesuaikan kondisi kendaraan saat pengerjaan sebenarnya, serta belum mengunci ketersediaan stok part.</p>
+  `;
+  openPrintWindow(buildPrintDocument('ESTIMASI BIAYA', header.EstimasiID, body, getPrintCss()));
 }
 
 /* ================= INVENTORY: PO CREATED ================= */
@@ -2851,7 +3187,7 @@ async function printPO(ponumber){
       <div><span>Approved By</span><b>${esc(header.ApprovedBy)||'-'}</b></div>
       ${header.NoOrderSupplier ? `<div><span>No Order Supplier</span><b>${esc(header.NoOrderSupplier)}</b></div>`:''}
     </div>
-    <table><tr><th>No</th><th>Part Number</th><th>Part Name</th><th class="num">Qty Order</th><th class="num">Harga</th><th class="num">Total Harga</th></tr>
+    <table class="doc-table"><colgroup><col style="width:6%"><col style="width:18%"><col style="width:32%"><col style="width:12%"><col style="width:16%"><col style="width:16%"></colgroup><tr><th>No</th><th>Part Number</th><th>Part Name</th><th class="num">Qty Order</th><th class="num">Harga</th><th class="num">Total Harga</th></tr>
       ${details.map((d,i)=>`<tr><td>${i+1}</td><td>${esc(d.PartNumber)}</td><td>${esc(d.PartName)}</td><td class="num">${d.QtyOrder}</td><td class="num">${fmtMoneyFull(d.HargaSatuan)}</td><td class="num">${fmtMoneyFull(d.Subtotal)}</td></tr>`).join('')}
     </table>
     <div class="print-total">TOTAL PO: ${fmtMoneyFull(header.TotalPO)}</div>
