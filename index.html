@@ -1251,8 +1251,14 @@ function formCustomer(c){
 }
 async function saveCustomer(id){
   const payload = { CustomerID:id, Nama:val('f_nama'), NoHP:val('f_hp'), Email:val('f_email'), Alamat:val('f_alamat') };
+  // Peringatan lembut (bukan blokir keras) kalau No HP sudah dipakai customer lain - dilihat sebagai
+  // konfirmasi karena secara wajar 1 No HP kadang memang dipakai bareng (mis. satu keluarga).
+  const existingCust = (window['__rawdata_cust']||[]).find(c=>c.CustomerID!==id && String(c.NoHP||'').trim()===String(payload.NoHP||'').trim() && payload.NoHP);
+  if(existingCust && !confirm('No HP "'+payload.NoHP+'" sudah terdaftar atas nama "'+existingCust.Nama+'". Tetap simpan sebagai customer ini?')){
+    return;
+  }
   const res = await apiPost('saveCustomer', payload);
-  if(res.success){ toast('Customer tersimpan'); closeDrawer(); renderCustomer(); } else toast(res.message,true);
+  if(res.success){ toast('Customer tersimpan'); invalidateWOFormCache(); closeDrawer(); renderCustomer(); } else toast(res.message,true);
 }
 
 /* ================= MASTER: VEHICLE ================= */
@@ -1302,7 +1308,7 @@ async function saveVehicle(id){
   const payload = { VehicleID:id, CustomerID:val('f_cust'), NoPolisi:val('f_pol'), NoRangka:val('f_rangka'),
     NoMesin:val('f_mesin'), Brand:val('f_brand'), Model:val('f_model'), TahunKendaraan:val('f_tahun'), Warna:val('f_warna') };
   const res = await apiPost('saveVehicle', payload);
-  if(res.success){ toast('Vehicle tersimpan'); closeDrawer(); renderVehicle(); } else toast(res.message,true);
+  if(res.success){ toast('Vehicle tersimpan'); invalidateWOFormCache(); closeDrawer(); renderVehicle(); } else toast(res.message,true);
 }
 
 /* ================= MASTER: PART ================= */
@@ -1385,7 +1391,7 @@ async function savePart(){
     Status:val('f_status'), Locked: val('f_locked')==='true',
     SuggestPrice:val('f_suggestprice'), ClaimPrice:val('f_claimprice'), ActorRole:actor.role, ActorName:actor.name };
   const res = await apiPost('savePart', payload);
-  if(res.success){ toast('Part tersimpan'); closeDrawer(); renderPartMaster(); } else toast(res.message,true);
+  if(res.success){ toast('Part tersimpan'); invalidateWOFormCache(); closeDrawer(); renderPartMaster(); } else toast(res.message,true);
 }
 
 /* ================= INVENTORY MASTER ================= */
@@ -1469,7 +1475,7 @@ function formLabor(l){
 async function saveLabor(){
   const payload = { LaborCode:val('f_lc'), LaborName:val('f_lname'), Kategori:val('f_lkat'), Harga:val('f_lharga'), EstimasiMenit:val('f_lest') };
   const res = await apiPost('saveLabor', payload);
-  if(res.success){ toast('Labor tersimpan'); closeDrawer(); renderLaborMaster(); } else toast(res.message,true);
+  if(res.success){ toast('Labor tersimpan'); invalidateWOFormCache(); closeDrawer(); renderLaborMaster(); } else toast(res.message,true);
 }
 
 /* ================= MASTER: KARYAWAN / ROLE (dipakai utk gate akses Work Order) ================= */
@@ -1835,9 +1841,24 @@ function drawWOList(data){
   initTable('wolist');
 }
 
+// Cache ringan di sisi browser untuk data master yang jarang berubah (Customer/Vehicle/Part/Labor/Sublet).
+// Setiap request ke Apps Script Web App kena overhead "cold start" eksekusi (bukan cuma soal ukuran data),
+// jadi kalau form Buat WO dibuka berkali-kali dalam sesi yang sama, tidak perlu fetch ulang selama masih
+// dalam masa berlaku cache (60 detik) - kecuali baru saja disimpan datanya (lihat invalidateWOFormCache()).
+const WO_FORM_CACHE_TTL_MS = 60000;
+async function getWOFormMasterData(){
+  const c = window.__woFormCache;
+  if(c && (Date.now()-c.ts) < WO_FORM_CACHE_TTL_MS) return c;
+  const res = await apiGet('getWOFormBootstrap');
+  const d = res.data||{};
+  const cache = { ts: Date.now(), customers:d.customers||[], vehicles:d.vehicles||[], parts:d.parts||[], labors:d.labors||[], sublets:d.sublets||[] };
+  window.__woFormCache = cache;
+  return cache;
+}
+function invalidateWOFormCache(){ window.__woFormCache = null; }
 async function formWorkOrder(){
-  const [cres,vres,pres,lres,sres] = await Promise.all([apiGet('listCustomer'),apiGet('listVehicle'),apiGet('listPart'),apiGet('listLabor'),apiGet('listSublet')]);
-  window.__customers = cres.data||[]; window.__vehicles = vres.data||[]; window.__parts = pres.data||[]; window.__labors = lres.data||[]; window.__sublets = sres.data||[];
+  const boot = await getWOFormMasterData();
+  window.__customers = boot.customers; window.__vehicles = boot.vehicles; window.__parts = boot.parts; window.__labors = boot.labors; window.__sublets = boot.sublets;
   woCart = { parts:[], labors:[], sublets:[] };
   const custMap = {}; window.__customers.forEach(c=>custMap[c.CustomerID]=c);
   const vehicleChoices = window.__vehicles.map(v=>({...v, custName:(custMap[v.CustomerID]||{}).Nama||'', custHP:(custMap[v.CustomerID]||{}).NoHP||''}));
@@ -1964,6 +1985,9 @@ async function addWOPart(){
   const stokTersedia = Number(part.StokAkhir)||0;
   if(stokTersedia<=0){ toast('Stok part "'+part.PartName+'" saat ini kosong (0), tidak bisa ditambahkan', true); return; }
   if(qty > stokTersedia){ toast('Qty ('+qty+') melebihi stok tersedia ('+stokTersedia+') untuk part "'+part.PartName+'"', true); return; }
+  if(woCart.parts.some(p=>String(p.PartNumber)===String(part.PartNumber))){
+    toast('Part "'+part.PartName+'" sudah ada di daftar item WO ini. Hapus dulu baris yang sudah ada kalau mau ubah qty/diskon.', true); return;
+  }
   woCart.parts.push({PartNumber:part.PartNumber, PartName:part.PartName, Qty:qty, Harga:part.HargaJual, DiskonPersen:disc});
   renderWOLists();
   setFieldValue('wo_part_combo',''); const inp=document.getElementById('wo_part_combo_input'); if(inp) inp.value='';
@@ -1977,6 +2001,9 @@ function addWOLabor(){
   const disc = Math.min(1, Math.max(0, Number(val('wo_labor_disc'))||0));
   const labor = window.__labors.find(l=>String(l.LaborCode)===String(lc));
   if(!labor) return;
+  if(woCart.labors.some(l=>String(l.LaborCode)===String(lc))){
+    toast('Jasa "'+labor.LaborName+'" sudah ada di daftar item WO ini. Hapus dulu baris yang sudah ada kalau mau ubah qty/diskon.', true); return;
+  }
   woCart.labors.push({LaborCode:lc, LaborName:labor.LaborName, Qty:qty, Harga:labor.Harga, DiskonPersen:disc});
   renderWOLists();
   setFieldValue('wo_labor_combo',''); const inp=document.getElementById('wo_labor_combo_input'); if(inp) inp.value='';
@@ -2082,7 +2109,7 @@ async function submitWorkOrder(){
     sublets: woCart.sublets.map(s=>({SubletName:s.SubletName, Qty:s.Qty, HargaBeli:s.HargaBeli, HargaJual:s.HargaJual}))
   };
   const res = await apiPost('createWorkOrder', payload);
-  if(res.success){ toast('Work Order dibuat: '+res.id); closeDrawer(); refreshCurrentView(); } else toast(res.message,true);
+  if(res.success){ toast('Work Order dibuat: '+res.id); invalidateWOFormCache(); closeDrawer(); refreshCurrentView(); } else toast(res.message,true);
 }
 async function viewWorkOrder(woid){
   const res = await apiGet('getWorkOrder', {id:woid});
@@ -2119,18 +2146,18 @@ async function viewWorkOrder(woid){
       <p class="muted" style="font-size:13px;">Keluhan: ${esc(header.Keluhan)||'-'}</p>
 
       <div class="flex-between"><h3 style="font-size:13.5px;margin:14px 0 8px;">Part</h3>${editable?`<button class="btn ghost sm" onclick="openAddItemModal('${woid}','part')">${icon('plus')} Tambah Part</button>`:''}</div>
-      <table><tr><th>Part</th><th>Qty</th><th>Harga</th><th>Subtotal</th><th>Status</th></tr>
-        ${parts.map(p=>`<tr><td>${esc(p.PartName)}</td><td>${p.Qty}</td><td>${fmtMoneyFull(p.HargaSatuan)}</td><td>${fmtMoneyFull(p.Subtotal)}</td><td><span class="badge ${p.StatusPicking==='Picked'?'good':p.StatusPicking==='Returned'?'critical':'muted'}"><span class="dot"></span>${p.StatusPicking}</span></td></tr>`).join('') || `<tr><td colspan="5">${emptyState('Tidak ada part')}</td></tr>`}
+      <table><tr><th>Part</th><th>Qty</th><th>Harga</th><th>Subtotal</th><th>Status</th>${editable?'<th></th>':''}</tr>
+        ${parts.map(p=>`<tr><td>${esc(p.PartName)}</td><td>${p.Qty}</td><td>${fmtMoneyFull(p.HargaSatuan)}</td><td>${fmtMoneyFull(p.Subtotal)}</td><td><span class="badge ${p.StatusPicking==='Picked'?'good':p.StatusPicking==='Returned'?'critical':'muted'}"><span class="dot"></span>${p.StatusPicking}</span></td>${editable?`<td><button class="btn ghost sm" title="Hapus item ini" onclick="doDeleteWOItem('${woid}','part','${p.RowID}','${esc(p.PartName)}')">&times;</button></td>`:''}</tr>`).join('') || `<tr><td colspan="${editable?6:5}">${emptyState('Tidak ada part')}</td></tr>`}
       </table>
 
       <div class="flex-between"><h3 style="font-size:13.5px;margin:14px 0 8px;">Labor</h3>${editable?`<button class="btn ghost sm" onclick="openAddItemModal('${woid}','labor')">${icon('plus')} Tambah Jasa</button>`:''}</div>
-      <table><tr><th>Jasa</th><th>Qty</th><th>Harga</th><th>Subtotal</th></tr>
-        ${labors.map(l=>`<tr><td>${esc(l.LaborName)}</td><td>${l.Qty}</td><td>${fmtMoneyFull(l.HargaSatuan)}</td><td>${fmtMoneyFull(l.Subtotal)}</td></tr>`).join('') || `<tr><td colspan="4">${emptyState('Tidak ada labor')}</td></tr>`}
+      <table><tr><th>Jasa</th><th>Qty</th><th>Harga</th><th>Subtotal</th>${editable?'<th></th>':''}</tr>
+        ${labors.map(l=>`<tr><td>${esc(l.LaborName)}</td><td>${l.Qty}</td><td>${fmtMoneyFull(l.HargaSatuan)}</td><td>${fmtMoneyFull(l.Subtotal)}</td>${editable?`<td><button class="btn ghost sm" title="Hapus item ini" onclick="doDeleteWOItem('${woid}','labor','${l.RowID}','${esc(l.LaborName)}')">&times;</button></td>`:''}</tr>`).join('') || `<tr><td colspan="${editable?5:4}">${emptyState('Tidak ada labor')}</td></tr>`}
       </table>
 
       <div class="flex-between"><h3 style="font-size:13.5px;margin:14px 0 8px;">Sublet</h3>${editable?`<button class="btn ghost sm" onclick="openAddItemModal('${woid}','sublet')">${icon('plus')} Tambah Sublet</button>`:''}</div>
-      <table><tr><th>Sublet</th><th>Qty</th><th>Harga Jual</th><th>Subtotal</th></tr>
-        ${(sublets||[]).map(s=>`<tr><td>${esc(s.SubletName)}</td><td>${s.Qty}</td><td>${fmtMoneyFull(s.HargaJual)}</td><td>${fmtMoneyFull(s.Subtotal)}</td></tr>`).join('') || `<tr><td colspan="4">${emptyState('Tidak ada sublet')}</td></tr>`}
+      <table><tr><th>Sublet</th><th>Qty</th><th>Harga Jual</th><th>Subtotal</th>${editable?'<th></th>':''}</tr>
+        ${(sublets||[]).map(s=>`<tr><td>${esc(s.SubletName)}</td><td>${s.Qty}</td><td>${fmtMoneyFull(s.HargaJual)}</td><td>${fmtMoneyFull(s.Subtotal)}</td>${editable?`<td><button class="btn ghost sm" title="Hapus item ini" onclick="doDeleteWOItem('${woid}','sublet','${s.RowID}','${esc(s.SubletName)}')">&times;</button></td>`:''}</tr>`).join('') || `<tr><td colspan="${editable?5:4}">${emptyState('Tidak ada sublet')}</td></tr>`}
       </table>
 
       <div class="kv" style="margin-top:8px;"><span>Subtotal (Part+Labor+Sublet)</span><b>${fmtMoneyFull(subtotalKotor)}</b></div>
@@ -2210,6 +2237,16 @@ async function openAddItemModal(woid, type){
     });
   }
 }
+// Hapus 1 baris item (Part/Labor/Sublet) yang sudah ditambahkan ke WO. Kalau part-nya sudah "Picked"
+// (stok sudah terpotong), backend akan minta role Manager/Super Admin (mengembalikan stok itu sensitif),
+// sementara item lain (Pending, Labor, Sublet) bisa dihapus SA sendiri karena tidak menyentuh stok.
+async function doDeleteWOItem(woid, type, rowId, itemName){
+  if(!confirm('Hapus item "'+itemName+'" dari Work Order ini?')) return;
+  const actor = getActor();
+  const actionMap = {part:'deleteWOPart', labor:'deleteWOLabor', sublet:'deleteWOSublet'};
+  const res = await apiPost(actionMap[type], {WOID:woid, RowID:rowId, ActorRole:actor.role, ActorName:actor.name});
+  if(res.success){ toast('Item dihapus'); viewWorkOrder(woid); refreshCurrentView(); } else toast(res.message,true);
+}
 async function submitAddItem(woid, type){
   let res;
   if(type==='part'){
@@ -2228,7 +2265,7 @@ async function submitAddItem(woid, type){
     if(!name||qty<=0){ toast('Cari/ketik nama sublet dan isi qty', true); return; }
     res = await apiPost('addWOSublet', {WOID:woid, SubletName:name, Qty:qty, HargaBeli:hb, HargaJual:hj});
   }
-  if(res.success){ toast('Item ditambahkan'); closeModal(); viewWorkOrder(woid); refreshCurrentView(); } else toast(res.message,true);
+  if(res.success){ toast('Item ditambahkan'); invalidateWOFormCache(); closeModal(); viewWorkOrder(woid); refreshCurrentView(); } else toast(res.message,true);
 }
 
 /* ---- transisi status WO: Dispatching (pilih mekanik), Material Picking (submit part staff), lainnya (konfirmasi + gate role) ---- */
