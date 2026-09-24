@@ -458,9 +458,7 @@ const NAV = [
   ]},
   {group:'Work Order', items:[
     {id:'workorder', label:'Create New Order (WO)', icon:'wo'},
-    {id:'wo-new', label:'New', icon:'wo'},
-    {id:'wo-dispatching', label:'Dispatching', icon:'wo'},
-    {id:'wo-picking', label:'Material Picking', icon:'wo'},
+    {id:'wo-order-query', label:'Order Query', icon:'wo'},
     {id:'wo-completed', label:'Completed', icon:'wo'},
     {id:'wo-invoice', label:'Invoice', icon:'wo'},
     {id:'wo-delivery', label:'Vehicle Delivery', icon:'wo'},
@@ -526,6 +524,7 @@ function buildNav(){
       document.getElementById('pageTitle').textContent = label;
       document.getElementById('crumb').textContent = 'DMS / ' + label;
       document.getElementById('sidebar').classList.remove('mobile-open');
+      window.__currentViewId = view;
       views[view]();
     });
   });
@@ -928,9 +927,7 @@ const views = {
   labormaster: renderLaborMaster,
   karyawan: renderKaryawan,
   workorder: renderWorkOrder,
-  'wo-new': ()=>renderWOStage('New'),
-  'wo-dispatching': ()=>renderWOStage('Dispatching'),
-  'wo-picking': ()=>renderWOStage('Material Picking'),
+  'wo-order-query': renderOrderQuery,
   'wo-completed': ()=>renderWOStage('Completed'),
   'wo-invoice': ()=>renderWOStage('Invoice'),
   'wo-delivery': ()=>renderWOStage('Vehicle Delivery'),
@@ -951,6 +948,15 @@ const views = {
   'report-unit-entry': renderUnitEntryReport,
   guide: renderGuide
 };
+window.__currentViewId = window.__currentViewId || 'dashboard';
+// Refresh halaman yang SEDANG dibuka user (dipakai setelah aksi di drawer detail WO/PO/dll, seperti
+// Dispatching/Set status/Batalkan), supaya user tetap di halaman yang sama alih-alih dilempar balik
+// ke halaman lain yang di-hardcode. Dulu semua aksi WO hardcode balik ke renderWorkOrder() (board Kanban),
+// sekarang ikut ke halaman aktif (mis. tetap di "Order Query" kalau aksinya dilakukan dari situ).
+function refreshCurrentView(){
+  const v = window.__currentViewId;
+  if(v && views[v]) views[v]();
+}
 // Item "Panduan Penggunaan" ada di footer sidebar (di luar NAV/privilege), jadi selalu terlihat semua role.
 function openGuide(){
   document.querySelectorAll('.nav-item').forEach(i=>i.classList.remove('active'));
@@ -1847,7 +1853,7 @@ async function formWorkOrder(){
           <p class="sub" style="margin:6px 0 14px;">Kendaraan belum terdaftar? Tambahkan dulu lewat menu Customer / Vehicle.</p>
           <div class="grid3">
             <div><label>Jenis WO</label><select id="wo_jenis"><option>General Repair</option><option>Body Repair</option></select></div>
-            <div><label>SA</label><input id="wo_sa"></div>
+            <div><label>SA</label><input id="wo_sa" value="${esc(actor.name||'')}" ${actor.role==='SA'?'disabled title="Otomatis nama Anda yang login sebagai SA"':''}></div>
             <div><label>KM</label><input id="wo_km" type="number"></div>
           </div>
           <label>Keluhan</label><textarea id="wo_keluhan"></textarea>
@@ -2076,7 +2082,7 @@ async function submitWorkOrder(){
     sublets: woCart.sublets.map(s=>({SubletName:s.SubletName, Qty:s.Qty, HargaBeli:s.HargaBeli, HargaJual:s.HargaJual}))
   };
   const res = await apiPost('createWorkOrder', payload);
-  if(res.success){ toast('Work Order dibuat: '+res.id); closeDrawer(); renderWorkOrder(); } else toast(res.message,true);
+  if(res.success){ toast('Work Order dibuat: '+res.id); closeDrawer(); refreshCurrentView(); } else toast(res.message,true);
 }
 async function viewWorkOrder(woid){
   const res = await apiGet('getWorkOrder', {id:woid});
@@ -2152,7 +2158,7 @@ async function viewWorkOrder(woid){
 async function confirmApproveDiskon(woid){
   const actor = getActor();
   const res = await apiPost('approveWODiskon', {WOID:woid, ActorRole:actor.role, ActorName:actor.name});
-  if(res.success){ toast('Diskon disetujui, WO siap Dispatching'); viewWorkOrder(woid); renderWorkOrder(); } else toast(res.message,true);
+  if(res.success){ toast('Diskon disetujui, WO siap Dispatching'); viewWorkOrder(woid); refreshCurrentView(); } else toast(res.message,true);
 }
 
 /* ---- tambah item (Part/Labor/Sublet) ke WO yang sudah ada, sebelum masuk status Invoice ---- */
@@ -2222,7 +2228,7 @@ async function submitAddItem(woid, type){
     if(!name||qty<=0){ toast('Cari/ketik nama sublet dan isi qty', true); return; }
     res = await apiPost('addWOSublet', {WOID:woid, SubletName:name, Qty:qty, HargaBeli:hb, HargaJual:hj});
   }
-  if(res.success){ toast('Item ditambahkan'); closeModal(); viewWorkOrder(woid); renderWorkOrder(); } else toast(res.message,true);
+  if(res.success){ toast('Item ditambahkan'); closeModal(); viewWorkOrder(woid); refreshCurrentView(); } else toast(res.message,true);
 }
 
 /* ---- transisi status WO: Dispatching (pilih mekanik), Material Picking (submit part staff), lainnya (konfirmasi + gate role) ---- */
@@ -2289,19 +2295,19 @@ async function confirmDispatch(woid, hasMekanikMaster){
   const mekanikName = hasMekanikMaster ? val('disp_mekanik_combo') : val('disp_mekanik_manual');
   if(!mekanikName){ toast('Pilih / isi nama mekanik terlebih dahulu', true); return; }
   const res = await apiPost('updateWorkOrderStatus', {WOID:woid, Status:'Dispatching', Mekanik:mekanikName, ActorRole:actor.role, ActorName:actor.name});
-  if(res.success){ toast('WO didispatch ke '+mekanikName); closeModal(); closeDrawer(); renderWorkOrder(); } else toast(res.message,true);
+  if(res.success){ toast('WO didispatch ke '+mekanikName); closeModal(); closeDrawer(); refreshCurrentView(); } else toast(res.message,true);
 }
 async function confirmMaterialPicking(woid){
   const actor = getActor();
   const rowIds = Array.from(document.querySelectorAll('.pick-chk:checked')).map(el=>el.dataset.rowid);
   if(rowIds.length===0){ toast('Pilih minimal 1 part', true); return; }
   const res = await apiPost('submitMaterialPicking', {WOID:woid, ActorRole:actor.role, ActorName:actor.name, pickedRowIds:rowIds});
-  if(res.success){ toast('Material picking disubmit'); closeModal(); closeDrawer(); renderWorkOrder(); } else toast(res.message,true);
+  if(res.success){ toast('Material picking disubmit'); closeModal(); closeDrawer(); refreshCurrentView(); } else toast(res.message,true);
 }
 async function confirmAdvance(woid, status){
   const actor = getActor();
   const res = await apiPost('updateWorkOrderStatus', {WOID:woid, Status:status, ActorRole:actor.role, ActorName:actor.name});
-  if(res.success){ toast('Status diperbarui ke '+status); closeModal(); closeDrawer(); renderWorkOrder(); } else toast(res.message,true);
+  if(res.success){ toast('Status diperbarui ke '+status); closeModal(); closeDrawer(); refreshCurrentView(); } else toast(res.message,true);
 }
 
 /* ---- pembatalan WO abnormal di tahap manapun, hanya oleh Manager, dgn pengembalian stok kalau perlu ---- */
@@ -2322,7 +2328,7 @@ async function confirmCancelWO(woid){
   const reason = val('cancel_reason').trim();
   if(!reason){ toast('Alasan pembatalan wajib diisi', true); return; }
   const res = await apiPost('cancelWorkOrder', {WOID:woid, ActorRole:actor.role, ActorName:actor.name, Reason:reason});
-  if(res.success){ toast('Work Order dibatalkan, stok dikembalikan'); closeModal(); closeDrawer(); renderWorkOrder(); } else toast(res.message,true);
+  if(res.success){ toast('Work Order dibatalkan, stok dikembalikan'); closeModal(); closeDrawer(); refreshCurrentView(); } else toast(res.message,true);
 }
 
 /* ---- sub-menu Work Order per tahap (New s/d Vehicle Delivery) - biar ketahuan posisi dokumen ---- */
@@ -2334,6 +2340,37 @@ const WO_STAGE_DESC = {
   'Invoice':'Sudah diinvoice, menunggu Vehicle Delivery oleh SA.',
   'Vehicle Delivery':'Tujuan akhir alur WO — kendaraan sudah diserahkan ke customer.'
 };
+// "Order Query" - gabungan 3 tahap awal WO (New/Dispatching/Material Picking) jadi satu halaman,
+// dengan filter Order Status untuk mempersempit tampilan ke salah satu tahap saja. Aksi (Dispatching,
+// submit Material Picking, dst) tetap dieksekusi langsung dari drawer detail WO (viewWorkOrder) seperti
+// biasa - setelah aksi berhasil, halaman ini akan refresh sendiri (lihat refreshCurrentView()).
+const ORDER_QUERY_STATUSES = ['New', 'Dispatching', 'Material Picking'];
+async function renderOrderQuery(){
+  setMain(skeletonRows(4));
+  const res = await apiGet('listWorkOrder');
+  const data = (res.data||[]).filter(w=>ORDER_QUERY_STATUSES.indexOf(w.Status)!==-1).sort((a,b)=>new Date(b.CreatedAt)-new Date(a.CreatedAt));
+  setMain(`
+    <div class="page-head"><div><h2>Order Query</h2><p>Gabungan tahap New, Dispatching, dan Material Picking - gunakan filter Order Status untuk fokus ke satu tahap (${data.length} WO)</p></div></div>
+    ${filterBarHtml('orderquery', [
+      {key:'Status', label:'Order Status', options:ORDER_QUERY_STATUSES},
+      {key:'JenisWO', label:'Jenis WO', options:[...new Set(data.map(w=>w.JenisWO).filter(Boolean))]},
+      {key:'Mekanik', label:'Mekanik', options:[...new Set(data.map(w=>w.Mekanik).filter(Boolean))]}
+    ], 'TglWO')}
+    <div class="panel">${dataTable({
+      id:'orderquery', rows:data, searchKeys:['WOID','NamaCustomer','NoPolisi','Mekanik'],
+      columns:[
+        {key:'WOID', label:'WO ID', render:w=>`<span class="link-id" onclick="viewWorkOrder('${w.WOID}')">${esc(w.WOID)}</span>`},
+        {key:'TglWO', label:'Tgl', render:w=>fmtDate(w.TglWO)},
+        {key:'NamaCustomer', label:'Customer'}, {key:'NoPolisi', label:'No Polisi'}, {key:'JenisWO', label:'Jenis'},
+        {key:'Status', label:'Order Status', render:w=>statusBadge(w.Status, {'New':'s1','Dispatching':'s4','Material Picking':'s7'})},
+        {key:'Mekanik', label:'Mekanik', render:w=>esc(w.Mekanik||'-')},
+        {key:'TotalWO', label:'Total', numeric:true, render:w=>fmtMoneyFull(w.TotalWO)}
+      ],
+      rowActions:w=>`<button class="btn ghost sm" onclick="viewWorkOrder('${w.WOID}')">Detail</button>`
+    })}</div>
+  `);
+  initTable('orderquery');
+}
 async function renderWOStage(status){
   setMain(skeletonRows(4));
   const res = await apiGet('listWorkOrder');
