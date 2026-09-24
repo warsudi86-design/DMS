@@ -372,8 +372,8 @@ textarea{resize:vertical;min-height:60px;}
 <div class="login-screen" id="loginScreen" style="display:none;">
   <div class="login-card">
     <div class="login-logo" id="loginLogo">DMS</div>
-    <h1>BW GROUP</h1>
-    <p class="sub">BW Auto Craft — Dealer Management System</p>
+    <h1>BW Auto Craft</h1>
+    <p class="sub">Dealer Management System</p>
     <label>Pilih Nama Anda</label>
     <select id="login_user_select"></select>
     <label style="margin-top:10px;">Password</label>
@@ -1098,7 +1098,44 @@ function renderGuide(){
       v                                                           |
  Status: VEHICLE DELIVERY (WO selesai)  <------------------------+`
       )}
-      <p style="font-size:13px;line-height:1.7;margin:0;">Submenu <b>New / Dispatching / Material Picking / Completed / Invoice / Vehicle Delivery</b> di sidebar = daftar WO yang sedang di masing-masing status tsb, supaya tiap role fokus ke tahap kerjanya.</p>
+      <p style="font-size:13px;line-height:1.7;margin:0 0 10px;">Submenu <b>New / Dispatching / Material Picking / Completed / Invoice / Vehicle Delivery</b> di sidebar = daftar WO yang sedang di masing-masing status tsb, supaya tiap role fokus ke tahap kerjanya.</p>
+      <ul style="font-size:13px;line-height:1.9;padding-left:18px;margin:0;">
+        <li><b>Nomor Invoice</b>: saat WO pertama kali mencapai status Invoice, sistem otomatis membuat nomor Invoice (format <code>INV-yyMMdd-0001</code>) - satu rangkaian nomor yang sama dengan invoice Part Direct Sales.</li>
+        <li><b>Tampilan Order Query</b>: ada mode <b>Board</b> (kartu ringkas per status - jumlah, total nilai, panah tren naik/turun vs hari sebelumnya, klik untuk lompat ke List terfilter) dan <b>List</b> (daftar detail).</li>
+      </ul>
+    </div>
+
+    <div class="panel">
+      <h3>3b. Alur Estimasi</h3>
+      <p style="font-size:13px;line-height:1.7;">Menu <b>Estimasi</b> (grup Work Order) untuk memberi perkiraan biaya ke customer yang belum pasti jadi service - struktur form sama seperti Buat Work Order, tapi:</p>
+      <ul style="font-size:13px;line-height:1.9;padding-left:18px;margin:0;">
+        <li><b>Tidak mengunci stok</b> - tidak ada pengecekan ketersediaan stok saat menambah part (murni informasi harga).</li>
+        <li>Status: <b>Aktif</b> → <b>Dikonversi</b> (jadi WO sungguhan) atau <b>Dibatalkan</b>.</li>
+        <li>Kalau customer jadi service: di form Buat Work Order cari nomor Estimasi lewat kolom "Muat dari Nomor Estimasi" - semua data customer/vehicle/keluhan/part/jasa/sublet otomatis terisi, memakai harga TERBARU dari Part/Labor Master (bukan harga lama saat Estimasi dibuat).</li>
+        <li>Setelah WO berhasil dibuat, Estimasi otomatis ditandai Dikonversi & tertaut ke WOID hasil konversi.</li>
+      </ul>
+    </div>
+
+    <div class="panel">
+      <h3>3c. Alur Part Direct Sales</h3>
+      <p style="font-size:13px;line-height:1.7;">Menu tersendiri untuk transaksi jual sparepart murni (tanpa jasa/sublet, tanpa data kendaraan). Alurnya lebih pendek dari WO:</p>
+      ${guideFlow(
+`[Part Staff] Buat Order Part Direct Sales
+      | pilih customer, pilih part + qty
+      | (stok LANGSUNG terpotong saat disimpan, TIDAK ada
+      |  tahap Material Picking terpisah seperti di WO)
+      v
+ Status: NEW
+      | Kasir cetak Invoice
+      v
+ Status: INVOICE (nomor invoice satu sequence dgn invoice WO)`
+      )}
+      <ul style="font-size:13px;line-height:1.9;padding-left:18px;margin:0;">
+        <li>Tidak ada tahap Dispatching / Completed / Vehicle Delivery.</li>
+        <li><b>Batal</b>: hanya Manager, hanya dari status New (sebelum Invoice terbit) - stok yang terpotong otomatis dikembalikan (tercatat sebagai Inbound di Kartu Stok).</li>
+        <li>Terintegrasi penuh dengan Outbound History, Inventory Master, dan Kartu Stok (memakai fungsi pemotongan stok yang sama dengan WO/PO).</li>
+        <li>Ikut dihitung di Dashboard & Laporan Revenue vs GP (breakdown Revenue/GP per sumber - lihat Bagian 7).</li>
+      </ul>
     </div>
 
     <div class="panel">
@@ -1140,14 +1177,16 @@ Part siap dipakai di Work Order / Outbound`
         <li><b>Override per Orang</b>: kalau ada 2+ orang dengan role sama tapi aksesnya beda (misal 2 SA), Super Admin bisa atur privilege khusus 1 orang tanpa mengubah default role-nya.</li>
         <li>Menu yang belum pernah diatur = otomatis TERLIHAT (allow-by-default).</li>
         <li>Role <b>Super Admin</b> selalu penuh akses, tidak bisa dibatasi.</li>
+        <li>Tombol <b>"Migrasi Kolom Sheet"</b> (khusus Super Admin, di halaman ini juga) dipakai setiap kali developer menambahkan kolom baru ke sistem - menambahkan kolom baru itu ke Google Sheet yang sudah ada tanpa mengubah data lama. Aman diklik berkali-kali, tidak ada efek samping kalau tidak ada kolom baru.</li>
       </ul>
     </div>
 
     <div class="panel">
       <h3>7. Laporan</h3>
       <ul style="font-size:13px;line-height:1.9;padding-left:18px;margin:0;">
-        <li><b>Revenue vs GP</b>: perbandingan pendapatan & gross profit per periode.</li>
+        <li><b>Revenue vs GP</b>: perbandingan pendapatan & gross profit per periode. Revenue = Total WO (status Invoice/Vehicle Delivery) + Total Part Direct Sales (status Invoice). GP = Revenue - estimasi COGS. Ada panel <b>"Kontribusi per Sumber"</b> yang membedah Revenue & GP jadi 2 kategori - <b>Service (Work Order)</b> vs <b>Part Direct Sales</b> - masing-masing dengan nilai rupiah DAN persentase kontribusi (mis. dari Rp 10 juta total: Rp 8 juta/80% Service, Rp 2 juta/20% Part Direct Sales - begitu juga utk GP). Tabel detail transaksi punya kolom "Sumber" yang bisa diklik untuk lompat ke WO/Part Direct Sales terkait; export Excel juga menyertakan kolom ini.</li>
         <li><b>Unit Entry</b>: rekap unit kendaraan masuk servis per periode.</li>
+        <li><b>Dashboard</b> (halaman utama) juga menampilkan breakdown Revenue per sumber yang sama (Service vs Part Direct Sales, nilai + persen) di kartu Revenue, mengikuti periode yang dipilih.</li>
       </ul>
     </div>
 
@@ -1160,8 +1199,9 @@ Master Data
  |- Vehicle
  |- Part Master        (edit: Super Admin saja)
  |- Labor Master
- \`- Karyawan / Role    (privilege & reset password: Super Admin saja)
+ \`- Karyawan / Role    (privilege, reset password, & Migrasi Kolom Sheet: Super Admin saja)
 Work Order
+ |- Estimasi
  |- Create New Order (WO)
  |- New
  |- Dispatching
@@ -1169,6 +1209,8 @@ Work Order
  |- Completed
  |- Invoice
  \`- Vehicle Delivery
+Part Direct Sales
+ \`- Part Direct Sales
 Purchasing Order
  |- Pengajuan PO
  |- Approval PO
@@ -1224,7 +1266,11 @@ async function renderDashboard(period){
         <div class="label">Part Stok Rendah</div><div class="value">${d.lowStockCount}</div>
         ${d.lowStockCount>0?`<div class="delta down">Perlu tindakan</div>`:`<div class="delta up">Semua aman</div>`}</div>
       <div class="stat-card"><div class="icon" style="background:rgba(12,163,12,.16);color:var(--good)">${icon('money')}</div>
-        <div class="label">Revenue (${esc(periodLabel(period))})</div><div class="value" style="font-size:19px;">${fmtMoney(d.revenueThisMonth)}${trendBadgeHtml(trend.revenue)}</div></div>
+        <div class="label">Revenue (${esc(periodLabel(period))})</div><div class="value" style="font-size:19px;">${fmtMoney(d.revenueThisMonth)}${trendBadgeHtml(trend.revenue)}</div>
+        ${d.revenueBySource ? `<div class="sub" style="margin-top:6px;line-height:1.6;">
+          Service: <b>${fmtMoney(d.revenueBySource.service)}</b> (${d.revenueBySource.servicePct.toFixed(1)}%)<br>
+          Part Direct Sales: <b>${fmtMoney(d.revenueBySource.partSales)}</b> (${d.revenueBySource.partSalesPct.toFixed(1)}%)
+        </div>` : ''}</div>
       <div class="stat-card"><div class="icon" style="background:rgba(57,135,229,.10);color:var(--s1)">${icon('wo')}</div>
         <div class="label">Total Work Order (Sepanjang Waktu)</div><div class="value">${d.totalWO}</div></div>
     </div>
@@ -3938,7 +3984,7 @@ async function loadRevenueGPReport(){
   const params = (from || to) ? {from, to} : {period: val('rgp_period')||'this_month'};
   const res = await apiGet('getRevenueGPReport', params);
   if(!res.success){ el.innerHTML = `<div class="panel">${emptyState(res.message)}</div>`; return; }
-  const {rows, monthly, totals, trend} = res.data;
+  const {rows, monthly, totals, trend, bySource} = res.data;
   window.__rgp_rows = rows;
   const barItems = [];
   monthly.forEach(m=>{
@@ -3952,10 +3998,22 @@ async function loadRevenueGPReport(){
       <div class="stat-card"><div class="label">Gross Profit</div><div class="value">${fmtMoney(totals.gp)}${trend?trendBadgeHtml(trend.gp):''}</div></div>
       <div class="stat-card"><div class="label">GP Margin</div><div class="value">${totals.margin.toFixed(1)}%</div></div>
     </div>
+    ${bySource ? `
+    <div class="panel" style="margin-bottom:12px;">
+      <h3 style="font-size:13.5px;">Kontribusi per Sumber</h3>
+      <p class="sub">Perbandingan Service (Work Order) vs Part Direct Sales</p>
+      <div style="overflow-x:auto;"><table>
+        <tr><th>Sumber</th><th class="num">Revenue</th><th class="num">% Revenue</th><th class="num">GP</th><th class="num">% GP</th><th class="num">Margin</th></tr>
+        <tr><td>Service (Work Order)</td><td class="num">${fmtMoneyFull(bySource.service.revenue)}</td><td class="num">${bySource.service.revenuePct.toFixed(1)}%</td>
+          <td class="num">${fmtMoneyFull(bySource.service.gp)}</td><td class="num">${bySource.service.gpPct.toFixed(1)}%</td><td class="num">${bySource.service.margin.toFixed(1)}%</td></tr>
+        <tr><td>Part Direct Sales</td><td class="num">${fmtMoneyFull(bySource.partSales.revenue)}</td><td class="num">${bySource.partSales.revenuePct.toFixed(1)}%</td>
+          <td class="num">${fmtMoneyFull(bySource.partSales.gp)}</td><td class="num">${bySource.partSales.gpPct.toFixed(1)}%</td><td class="num">${bySource.partSales.margin.toFixed(1)}%</td></tr>
+      </table></div>
+    </div>` : ''}
     ${barItems.length>0?`<div class="panel"><h3 style="font-size:13.5px;">Revenue vs GP per Bulan</h3><div id="rgp_bar"></div></div>`:''}
     <div class="panel">
-      ${rows.length===0 ? emptyState('Belum ada WO yang diinvoice pada rentang ini.') : `<div style="overflow-x:auto;"><table><tr><th>No WO</th><th>Tgl Invoice</th><th>Customer</th><th class="num">Revenue</th><th class="num">COGS</th><th class="num">GP</th><th class="num">Margin</th></tr>
-      ${rows.map(r=>`<tr><td><span class="link-id" onclick="viewWorkOrder('${r.WOID}')">${esc(r.WOID)}</span></td><td>${fmtDate(r.TglInvoice)}</td><td>${esc(r.NamaCustomer)}</td>
+      ${rows.length===0 ? emptyState('Belum ada transaksi yang diinvoice pada rentang ini.') : `<div style="overflow-x:auto;"><table><tr><th>No</th><th>Sumber</th><th>Tgl Invoice</th><th>Customer</th><th class="num">Revenue</th><th class="num">COGS</th><th class="num">GP</th><th class="num">Margin</th></tr>
+      ${rows.map(r=>`<tr><td><span class="link-id" onclick="${r.Source==='Part Direct Sales'?`viewPDS('${r.ID}')`:`viewWorkOrder('${r.ID}')`}">${esc(r.ID)}</span></td><td>${esc(r.Source)}</td><td>${fmtDate(r.TglInvoice)}</td><td>${esc(r.NamaCustomer)}</td>
         <td class="num">${fmtMoneyFull(r.Revenue)}</td><td class="num">${fmtMoneyFull(r.COGS)}</td><td class="num">${fmtMoneyFull(r.GP)}</td><td class="num">${r.Margin.toFixed(1)}%</td></tr>`).join('')}
       </table></div>`}
     </div>
@@ -3971,10 +4029,10 @@ async function loadRevenueGPReport(){
 function exportRevenueGPExcel(){
   const rows = window.__rgp_rows||[];
   if(rows.length===0){ toast('Belum ada data untuk di-export.', true); return; }
-  const headers = ['No WO','Tgl Invoice','Customer','Revenue','COGS','GP','Margin (%)'];
+  const headers = ['No','Sumber','Tgl Invoice','Customer','Revenue','COGS','GP','Margin (%)'];
   const csvRows = [headers.join(',')];
   rows.forEach(r=>{
-    csvRows.push([r.WOID, fmtDate(r.TglInvoice), r.NamaCustomer, r.Revenue, r.COGS, r.GP, r.Margin.toFixed(1)].map(csvEscape).join(','));
+    csvRows.push([r.ID, r.Source, fmtDate(r.TglInvoice), r.NamaCustomer, r.Revenue, r.COGS, r.GP, r.Margin.toFixed(1)].map(csvEscape).join(','));
   });
   downloadCsv(csvRows, 'Revenue_vs_GP_Report_'+Utilities_todayStr()+'.csv');
   toast(rows.length+' baris data berhasil di-export.');
