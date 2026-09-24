@@ -227,6 +227,17 @@ textarea{resize:vertical;min-height:60px;}
 .kv{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px dashed var(--border);font-size:13px;}
 
 /* ---------- KANBAN (Work Order) ---------- */
+.kanban-score{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;}
+.score-tile{background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius);padding:16px 16px 14px;cursor:pointer;transition:.15s;}
+.score-tile:hover{border-color:var(--border-strong);transform:translateY(-2px);box-shadow:0 6px 18px rgba(0,0,0,.08);}
+.score-head{display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;color:var(--ink-2);margin-bottom:10px;}
+.score-num{font-size:32px;font-weight:800;line-height:1;margin-bottom:4px;}
+.score-total{font-size:13px;font-weight:700;color:var(--ink-2);margin-bottom:10px;}
+.score-trend{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;font-weight:800;padding:3px 9px;border-radius:20px;}
+.score-trend.up{color:var(--good);background:rgba(10,143,10,.13);}
+.score-trend.down{color:var(--critical);background:rgba(194,58,58,.14);}
+.score-trend.flat{color:var(--ink-muted);background:var(--surface-3);}
+.score-sub{font-size:11px;color:var(--ink-muted);margin-top:8px;}
 .kanban{display:flex;gap:14px;overflow-x:auto;padding-bottom:10px;}
 .kanban-col{flex:0 0 250px;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius);
   padding:12px;display:flex;flex-direction:column;min-height:120px;transition:.15s;}
@@ -1749,6 +1760,12 @@ function logout(){
 let woCart = { parts:[], labors:[], sublets:[] };
 let woViewMode = 'kanban';
 const WO_FLOW = ['New','Dispatching','Material Picking','Completed','Invoice','Vehicle Delivery'];
+// Field tanggal per status (cermin WO_STATUS_DATE_FIELD di Code.gs) - dipakai utk hitung trend hari ini vs kemarin di scorecard Board.
+const WO_STATUS_DATE_FIELD_JS = {
+  'New':'TglNew','Dispatching':'TglDispatching','Material Picking':'TglMaterialPicking',
+  'Completed':'TglCompleted','Invoice':'TglInvoice','Vehicle Delivery':'TglVehicleDelivery'
+};
+function isSameLocalDay(d1, d2){ return d1.getFullYear()===d2.getFullYear() && d1.getMonth()===d2.getMonth() && d1.getDate()===d2.getDate(); }
 
 async function renderWorkOrder(){
   setMain(skeletonRows(4));
@@ -1786,45 +1803,46 @@ function resetWOFilter(){
   resetFilterBar('wo', filtered=>{ if(woViewMode==='kanban') drawKanban(filtered); else drawWOList(filtered); });
 }
 function drawKanban(data){
+  // Ringkasan scorecard per status (bukan daftar kartu per-WO) supaya space tetap ringkas walau
+  // jumlah WO terus bertambah. Tiap tile: total WO, total nilai, dan trend naik/turun (hari ini vs kemarin)
+  // dihitung dari field tanggal masuk status tsb (TglNew/TglDispatching/dst).
   const el = document.getElementById('woBody');
-  el.innerHTML = `<div class="kanban">${WO_FLOW.map(status=>{
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterday = new Date(today); yesterday.setDate(yesterday.getDate()-1);
+  el.innerHTML = `<div class="kanban-score">${WO_FLOW.map(status=>{
     const items = data.filter(w=>w.Status===status);
-    return `<div class="kanban-col" data-status="${status}">
-      <h4><span class="badge ${WO_STATUS_SLOT[status]}"><span class="dot"></span></span>${status}<span class="count">${items.length}</span></h4>
-      <div class="kcards" data-status="${status}">
-        ${items.map(w=>`
-          <div class="kcard" draggable="true" data-woid="${w.WOID}" onclick="viewWorkOrder('${w.WOID}')">
-            <div class="woid">${w.WOID}</div>
-            <div class="cust">${esc(w.NamaCustomer)}</div>
-            <div class="plate">${esc(w.NoPolisi)} · ${esc(w.JenisWO)}</div>
-            <div class="foot"><span class="total">${fmtMoney(w.TotalWO)}</span></div>
-          </div>`).join('')}
-      </div>
+    const count = items.length;
+    const totalValue = items.reduce((s,w)=>s+(Number(w.TotalWO)||0),0);
+    const dateField = WO_STATUS_DATE_FIELD_JS[status];
+    let todayCount=0, yestCount=0;
+    items.forEach(w=>{
+      const dv = w[dateField];
+      if(!dv) return;
+      const d = new Date(dv);
+      if(isNaN(d.getTime())) return;
+      const dd = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      if(isSameLocalDay(dd, today)) todayCount++;
+      else if(isSameLocalDay(dd, yesterday)) yestCount++;
+    });
+    let trendCls='flat', trendIcon='▬', trendLabel='Stabil';
+    if(todayCount > yestCount){ trendCls='up'; trendIcon='▲'; trendLabel='Naik'; }
+    else if(todayCount < yestCount){ trendCls='down'; trendIcon='▼'; trendLabel='Turun'; }
+    const diff = Math.abs(todayCount - yestCount);
+    return `<div class="score-tile" onclick="jumpToWOStatus('${status}')" title="Klik untuk lihat daftar WO status ${esc(status)}">
+      <div class="score-head"><span class="badge ${WO_STATUS_SLOT[status]}"><span class="dot"></span></span>${esc(status)}</div>
+      <div class="score-num">${count}</div>
+      <div class="score-total">${fmtMoney(totalValue)}</div>
+      <span class="score-trend ${trendCls}">${trendIcon} ${trendLabel}${diff>0?' '+diff:''}</span>
+      <div class="score-sub">Masuk hari ini: <b>${todayCount}</b> · kemarin: <b>${yestCount}</b></div>
     </div>`;
   }).join('')}</div>`;
-
-  // drag & drop
-  el.querySelectorAll('.kcard').forEach(card=>{
-    card.addEventListener('dragstart', e=>{ card.classList.add('dragging'); e.dataTransfer.setData('text/plain', card.dataset.woid); });
-    card.addEventListener('dragend', ()=> card.classList.remove('dragging'));
-  });
-  el.querySelectorAll('.kanban-col').forEach(col=>{
-    col.addEventListener('dragover', e=>{ e.preventDefault(); col.classList.add('dragover'); });
-    col.addEventListener('dragleave', ()=> col.classList.remove('dragover'));
-    col.addEventListener('drop', e=>{
-      e.preventDefault(); col.classList.remove('dragover');
-      const woid = e.dataTransfer.getData('text/plain');
-      const newStatus = col.dataset.status;
-      const wo = (window.__woData||[]).find(w=>String(w.WOID)===String(woid));
-      if(!wo || wo.Status===newStatus) return;
-      if(wo.Status==='Cancelled'){ toast('WO ini sudah dibatalkan', true); return; }
-      const curIdx = WO_FLOW.indexOf(wo.Status), newIdx = WO_FLOW.indexOf(newStatus);
-      if(newIdx < curIdx){ toast('Tidak bisa mundur status WO', true); return; }
-      const isSkipMaterialPicking = (wo.Status==='Dispatching' && newStatus==='Completed');
-      if(newIdx > curIdx+1 && !isSkipMaterialPicking){ toast('Tidak bisa lompat status, selesaikan tahap sebelumnya dulu', true); return; }
-      openAdvanceModal(woid, wo.Status, newStatus);
-    });
-  });
+}
+function jumpToWOStatus(status){
+  woViewMode = 'list';
+  drawWorkOrderView();
+  setFieldValue('flt_wo_Status', status);
+  applyWOFilter();
 }
 function drawWOList(data){
   document.getElementById('woBody').innerHTML = `<div class="panel">${dataTable({
