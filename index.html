@@ -367,8 +367,8 @@ textarea{resize:vertical;min-height:60px;}
 <div class="login-screen" id="loginScreen" style="display:none;">
   <div class="login-card">
     <div class="login-logo" id="loginLogo">DMS</div>
-    <h1>BW Auto Craft</h1>
-    <p class="sub">Dealer Management System</p>
+    <h1>BW GROUP</h1>
+    <p class="sub">BW Auto Craft — Dealer Management System</p>
     <label>Pilih Nama Anda</label>
     <select id="login_user_select"></select>
     <label style="margin-top:10px;">Password</label>
@@ -1493,6 +1493,15 @@ async function saveLabor(){
 
 /* ================= MASTER: KARYAWAN / ROLE (dipakai utk gate akses Work Order) ================= */
 const ROLE_BADGE = {'SA':'s1','Mekanik':'s2','Part Staff':'s4','Kasir':'s6','Manager':'critical','Super Admin':'critical'};
+// Jalankan manual oleh Super Admin kalau ada penambahan kolom baru di kode (SCHEMA di Code.gs) tapi sheet
+// Google Sheets-nya sudah lama dibuat SEBELUM kolom itu ada - kolom baru TIDAK otomatis muncul di sheet lama,
+// jadi field terkait akan selalu kosong/"-" (mis. No. Invoice) sampai migrasi ini dijalankan sekali.
+async function runMigrateSchema(){
+  if(!confirm('Cek & tambahkan kolom baru yang mungkin belum ada di semua sheet Google Sheets (aman dijalankan berkali-kali, tidak menghapus data apapun). Lanjutkan?')) return;
+  toast('Memeriksa skema sheet...');
+  const res = await apiPost('migrateSchema', {});
+  if(res.success){ toast(res.message, false); } else toast(res.message||'Gagal migrasi skema', true);
+}
 async function renderKaryawan(){
   setMain(skeletonRows(4));
   const res = await apiGet('listUsers');
@@ -1501,7 +1510,10 @@ async function renderKaryawan(){
   const actor = getActor();
   setMain(`
     <div class="page-head"><div><h2>Karyawan / Role</h2><p>Master pengguna aktif yang menjalankan proses Work Order (${data.length} total)</p></div>
-      <button class="btn" onclick="formUser()">${icon('plus')} Tambah Karyawan</button></div>
+      <div style="display:flex;gap:10px;">
+        ${actor.role==='Super Admin' ? `<button class="btn ghost" onclick="runMigrateSchema()" title="Jalankan ini kalau ada fitur baru yang butuh kolom baru di Google Sheet (mis. No. Invoice) tapi datanya masih kosong/strip">${icon('history')} Migrasi Kolom Sheet</button>` : ''}
+        <button class="btn" onclick="formUser()">${icon('plus')} Tambah Karyawan</button>
+      </div></div>
     <div class="panel">${dataTable({
       id:'user', rows:data, searchKeys:['Username','Nama','Role'],
       columns:[
