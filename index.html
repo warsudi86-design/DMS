@@ -501,7 +501,6 @@ const NAV = [
     {id:'outbound', label:'Outbound Part', icon:'outbound'},
     {id:'inbound-history', label:'Inbound History', icon:'history'},
     {id:'outbound-history', label:'Outbound History', icon:'history'},
-    {id:'kartustok', label:'Kartu Stok', icon:'card'},
     {id:'stok-opname', label:'Stock Opname', icon:'approve'},
     {id:'part-loss', label:'Part Loss', icon:'warning'},
   ]},
@@ -1022,7 +1021,6 @@ const views = {
   outbound: renderOutboundManual,
   'inbound-history': renderInboundHistory,
   'outbound-history': renderOutboundHistory,
-  kartustok: renderKartuStok,
   'stok-opname': renderStockOpname,
   'part-loss': renderPartLoss,
   'report-revenue-gp': renderRevenueGPReport,
@@ -1161,7 +1159,7 @@ function renderGuide(){
       <p style="font-size:13px;line-height:1.7;">Bagian dari grup <b>"Reminder, Booking & Follow Up"</b> - janji temu servis, bisa dibuat manual (tombol "Buat Booking") ATAU otomatis dibukakan formnya saat CRO memilih hasil "Booking Dibuat" di layar Reminder (Customer/Kendaraan sudah otomatis terisi, tidak perlu cari ulang).</p>
       <ul style="font-size:13px;line-height:1.9;padding-left:18px;margin:0;">
         <li><b>Alur status</b>: Booked (baru dibuat) → Confirmed (dikonfirmasi CRO/SA) → Checked-in (customer benar-benar datang). Ada 2 cabang keluar: Cancelled (dibatalkan) / No Show (tidak datang tanpa kabar).</li>
-        <li><b>Check-in otomatis membuat Estimasi kosong</b> lewat modul Estimasi yang sudah ada - jadi begitu customer datang, SA tinggal cari nomor Estimasi tsb di menu Estimasi untuk isi part/jasa, tidak perlu input ulang Customer/Kendaraan dari nol.</li>
+        <li><b>Check-in otomatis membuat Estimasi kosong</b> lewat modul Estimasi yang sudah ada - jadi begitu customer datang, SA tinggal buka menu <b>Create New Order (WO)</b> dan muat nomor Estimasi tsb lewat kolom "Muat dari Nomor Estimasi" untuk isi part/jasa (Customer/Kendaraan otomatis terisi, tidak perlu input ulang dari nol). Menu Estimasi sendiri read-only (cuma lihat/cetak/batalkan) - menambah item selalu dilakukan lewat form Buat Work Order, bukan dari menu Estimasi.</li>
         <li>Ada pengecekan bentrok jadwal sederhana: 1 Mekanik yang sama tidak boleh dibooking dobel di tanggal &amp; jam yang sama selama booking lain itu masih berstatus Booked/Confirmed.</li>
         <li>Kolom "Sumber" menunjukkan apakah booking dibuat manual atau hasil tindak lanjut Reminder (menyimpan nomor Reminder asalnya untuk ditelusuri).</li>
       </ul>
@@ -1200,10 +1198,9 @@ Part siap dipakai di Work Order / Outbound`
       <h3>5. Alur Inventory Management (di luar PO)</h3>
       <ul style="font-size:13px;line-height:1.9;padding-left:18px;margin:0 0 14px;">
         <li><b>Inbound Part</b>: pencatatan stok masuk manual (di luar alur PO resmi), misal penyesuaian/retur.</li>
-        <li><b>Inventory Master</b>: tampilan lengkap stok & harga tiap part (read-only untuk semua role kecuali Super Admin - datanya sama dengan Part Master).</li>
+        <li><b>Inventory Master</b>: tampilan lengkap stok & harga tiap part (read-only untuk semua role kecuali Super Admin - datanya sama dengan Part Master). Klik <b>No. Part</b> (atau tombol "Kartu Stok") di baris mana pun untuk membuka <b>Kartu Stok</b> part tsb - riwayat mutasi In/Out lengkap (bin card digital, dihitung otomatis dari Stock Ledger) plus tombol <b>Print PDF</b>. Menu "Kartu Stok" terpisah sudah dilebur ke sini supaya tidak ada 2 menu untuk 1 kebutuhan yang sama.</li>
         <li><b>Outbound Part</b>: pencatatan stok keluar manual (di luar pemakaian WO).</li>
         <li><b>Inbound History / Outbound History</b>: riwayat semua pergerakan stok (termasuk otomatis dari WO & PO).</li>
-        <li><b>Kartu Stok</b>: mutasi stok per part (bin card digital) untuk audit satu per satu part.</li>
         <li><b>Stock Opname</b>: hitung fisik stok gudang vs sistem - selisih masuk ke Part Loss untuk approval Manager.</li>
       </ul>
       ${guideFlow(`Stock Opname (hitung fisik) -> ada selisih? -> Part Loss (approval Manager) -> Inventory Master ter-update`)}
@@ -1262,11 +1259,10 @@ Inventory Management
  |- Penerimaan Part
  |- Sign In (Isi Rak)
  |- Inbound Part
- |- Inventory Master   (edit: Super Admin saja)
+ |- Inventory Master   (edit: Super Admin saja; klik No. Part -> Kartu Stok + Print PDF)
  |- Outbound Part
  |- Inbound History
  |- Outbound History
- |- Kartu Stok
  |- Stock Opname
  \`- Part Loss
 Laporan
@@ -1564,7 +1560,7 @@ async function renderInventoryMaster(){
   const actor = getActor();
   const canEdit = actor.role==='Super Admin';
   setMain(`
-    <div class="page-head"><div><h2>Inventory Master</h2><p>Daftar lengkap stok, harga, dan pergerakan terakhir tiap part (${data.length} part)</p></div></div>
+    <div class="page-head"><div><h2>Inventory Master</h2><p>Daftar lengkap stok, harga, dan pergerakan terakhir tiap part - klik No. Part untuk lihat Kartu Stok (riwayat mutasi lengkap + Print PDF) (${data.length} part)</p></div></div>
     ${!canEdit ? `<div class="warn-box" style="margin-bottom:12px;">Inventory Master hanya bisa diubah oleh akun <b>Super Admin</b>. Anda login sebagai <b>${esc(actor.role)}</b> - tampilan di bawah hanya untuk dilihat (read-only).</div>` : ''}
     ${filterBarHtml('invmaster', [
       {key:'Status', label:'Status', options:['Active','Inactive']}
@@ -1572,7 +1568,8 @@ async function renderInventoryMaster(){
     <div class="panel">${dataTable({
       id:'invmaster', rows:data, searchKeys:['PartNumber','PartName'],
       columns:[
-        {key:'PartNumber', label:'Parts No.'}, {key:'PartName', label:'Parts Name'},
+        {key:'PartNumber', label:'Parts No.', render:p=>`<span class="link-id" onclick='viewKartuStok(${JSON.stringify(p.PartNumber)})' title="Lihat Kartu Stok">${esc(p.PartNumber)}</span>`},
+        {key:'PartName', label:'Parts Name'},
         {key:'Status', label:'Status', render:p=>statusBadge(p.Status||'Active', {Active:'good', Inactive:'muted'})},
         {key:'StokAkhir', label:'Qty.', numeric:true},
         {key:'Locked', label:'Locked', render:p=>p.Locked===true?'🔒 Ya':'-'},
@@ -1584,10 +1581,78 @@ async function renderInventoryMaster(){
         {key:'LastStockIn', label:'Last Stock In', render:p=>p.LastStockIn?fmtDate(p.LastStockIn):'-'},
         {key:'LastStockOut', label:'Last Stock Out', render:p=>p.LastStockOut?fmtDate(p.LastStockOut):'-'}
       ],
-      rowActions: canEdit ? (p=>`<button class="btn ghost sm" onclick='formPart(${JSON.stringify(p)})'>${icon('edit')} Edit</button>`) : undefined
+      rowActions: p=>`<button class="btn ghost sm" onclick='viewKartuStok(${JSON.stringify(p.PartNumber)})'>${icon('history')||'Kartu Stok'} Kartu Stok</button>${canEdit?` <button class="btn ghost sm" onclick='formPart(${JSON.stringify(p)})'>${icon('edit')} Edit</button>`:''}`
     })}</div>
   `);
   initTable('invmaster');
+}
+
+/* ================= KARTU STOK (dilebur ke Inventory Master, per permintaan user) =================
+   Sebelumnya ini menu sidebar sendiri ("Kartu Stok") terpisah dari Inventory Master, dengan dropdown
+   pilih part sendiri - membingungkan karena datanya sebenarnya cuma "drill-down" dari 1 baris part yang
+   sama di Inventory Master. Sekarang dilebur: klik No. Part (atau tombol "Kartu Stok") di baris Inventory
+   Master langsung buka drawer ini - riwayat mutasi tetap dihitung LIVE dari Stock_Ledger (getKartuStok()
+   di backend, bukan input manual), plus tombol Print PDF yang sebelumnya tidak ada sama sekali. */
+window.__lastKartuStokData = null;
+async function viewKartuStok(partNumber){
+  openDrawer(`
+    <div class="drawer-head"><h3>Kartu Stok</h3><button class="drawer-close" onclick="closeDrawer()">&times;</button></div>
+    <div class="drawer-body" id="ks_drawer_body">${skeletonRows(3)}</div>
+    <div class="drawer-foot">
+      <button class="btn secondary" onclick="closeDrawer()">Tutup</button>
+      <button class="btn" onclick="printKartuStok()">${icon('print')||'🖨'} Print PDF</button>
+    </div>
+  `, true);
+  const res = await apiGet('getKartuStok', {partNumber});
+  const body = document.getElementById('ks_drawer_body');
+  if(!body) return; // drawer sudah ditutup sebelum request selesai
+  if(!res.success){ body.innerHTML = emptyState(res.message); window.__lastKartuStokData = null; return; }
+  const {part, history} = res.data;
+  window.__lastKartuStokData = {part, history};
+  const trendVals = history.slice(-12).map(h=>Number(h.StokSesudah));
+  const trendLabels = history.slice(-12).map(h=>fmtDate(h.Tgl));
+  body.innerHTML = `
+    <p class="sub" style="margin:0 0 12px;"><b>${esc(part.PartNumber)}</b> - ${esc(part.PartName)}</p>
+    <div class="cards">
+      <div class="stat-card"><div class="label">Stok Akhir</div><div class="value">${part.StokAkhir}</div></div>
+      <div class="stat-card"><div class="label">Stok Minimum</div><div class="value">${part.StokMinimum}</div></div>
+      <div class="stat-card"><div class="label">Lokasi</div><div class="value" style="font-size:16px;">${esc(part.Lokasi)||'-'}</div></div>
+    </div>
+    ${trendVals.length>1 ? `<h3 style="font-size:13px;margin:14px 0 8px;">Tren Stok (mutasi terakhir)</h3><div id="ks_line"></div>` : ''}
+    <h3 style="font-size:13px;margin:14px 0 8px;">Riwayat Mutasi</h3>
+    ${history.length===0 ? emptyState('Belum ada mutasi.') : `<table><tr><th>Tgl</th><th>Tipe</th><th>Qty</th><th>Sumber</th><th>Reference</th><th>Stok Sebelum</th><th>Stok Sesudah</th></tr>
+    ${history.slice().reverse().map(h=>`<tr><td>${fmtDate(h.Tgl)}</td><td><span class="badge ${h.Tipe==='Inbound'?'good':'critical'}"><span class="dot"></span>${h.Tipe}</span></td><td class="num">${h.Qty}</td><td>${esc(h.Sumber)}</td><td>${esc(h.Reference)}</td><td class="num">${h.StokSebelum}</td><td class="num">${h.StokSesudah}</td></tr>`).join('')}
+    </table>`}
+  `;
+  if(trendVals.length>1){
+    const lc = lineChart(trendLabels, trendVals);
+    const ksLine = document.getElementById('ks_line');
+    ksLine.innerHTML = lc.svg;
+    attachLineChart(ksLine, lc);
+    attachLineTooltip(ksLine, lc.pts);
+  }
+}
+function printKartuStok(){
+  const data = window.__lastKartuStokData;
+  if(!data){ toast('Data Kartu Stok belum siap, tunggu sebentar lalu coba lagi.', true); return; }
+  const {part, history} = data;
+  const body = `
+    <div class="print-grid">
+      <div><span>No. Part</span><b>${esc(part.PartNumber)}</b></div>
+      <div><span>Nama Part</span><b>${esc(part.PartName)}</b></div>
+      <div><span>Stok Akhir</span><b>${part.StokAkhir}</b></div>
+      <div><span>Stok Minimum</span><b>${part.StokMinimum}</b></div>
+      <div><span>Lokasi</span><b>${esc(part.Lokasi)||'-'}</b></div>
+      <div><span>Dicetak Pada</span><b>${fmtDate(new Date())}</b></div>
+    </div>
+    <table class="doc-table"><colgroup><col style="width:14%"><col style="width:12%"><col style="width:8%"><col style="width:20%"><col style="width:20%"><col style="width:13%"><col style="width:13%"></colgroup>
+      <tr><th>Tgl</th><th>Tipe</th><th class="num">Qty</th><th>Sumber</th><th>Reference</th><th class="num">Stok Sebelum</th><th class="num">Stok Sesudah</th></tr>
+      ${history.length===0 ? `<tr><td colspan="7" style="text-align:center;color:#777;">Belum ada mutasi.</td></tr>` :
+      history.map(h=>`<tr><td>${fmtDate(h.Tgl)}</td><td>${esc(h.Tipe)}</td><td class="num">${h.Qty}</td><td>${esc(h.Sumber)}</td><td>${esc(h.Reference)}</td><td class="num">${h.StokSebelum}</td><td class="num">${h.StokSesudah}</td></tr>`).join('')}
+    </table>
+    <p style="font-size:11.5px;color:#555;margin-top:14px;">Kartu stok ini dihitung otomatis dari seluruh mutasi (Inbound/Outbound) tercatat di sistem - bukan input manual.</p>
+  `;
+  openPrintWindow(buildPrintDocument('KARTU STOK', part.PartNumber, body, getPrintCss()));
 }
 
 /* ================= MASTER: LABOR ================= */
@@ -3589,10 +3654,21 @@ async function submitFollowUp(followUpId, status){
    submitReminderLog() saat CRO memilih hasil "Booking Dibuat" di layar Reminder - SourceReminderID
    ikut terbawa supaya booking ini tetap tertelusuri lahir dari tindak lanjut reminder yang mana.
    Alur status: Booked -> Confirmed -> Checked-in (TERMINAL - backend otomatis membuat shell Estimasi
-   kosong lewat checkinBooking(), jadi begitu customer datang, SA tinggal cari nomor Estimasi itu di
-   menu Estimasi utk isi part/jasa - tidak perlu input ulang Customer/Kendaraan dari nol). Cabang keluar:
-   Cancelled / No Show. */
+   kosong lewat checkinBooking(), jadi begitu customer datang, SA tinggal buka menu "Create New Order (WO)"
+   dan muat nomor Estimasi itu lewat kolom "Muat dari Nomor Estimasi" - Customer/Kendaraan otomatis terisi
+   dan SA baru bisa menambahkan part/jasa/sublet DI SITU sebelum disimpan jadi WO beneran. Menu Estimasi
+   sendiri SENGAJA read-only (cuma lihat/cetak/batalkan) - menambah item bukan dilakukan dari sana, sama
+   seperti Estimasi manual manapun). Cabang keluar: Cancelled / No Show. */
 const BOOKING_STATUS_BADGE = {'Booked':'s4','Confirmed':'s2','Checked-in':'good','Cancelled':'critical','No Show':'critical'};
+// Jaga-jaga: kalau JamBooking sempat kena konversi otomatis Google Sheets jadi Date sebelum backend
+// diperbaiki/Super Admin klik "Migrasi Kolom Sheet" (lihat forceJamBookingAsText_() di Code.gs), nilainya
+// akan berupa string tanggal aneh (mis. "1899-12-30T02:47:56.000Z") - JANGAN ditampilkan apa adanya karena
+// membingungkan, tampilkan "-" saja sampai diperbaiki, drpd menampilkan jam yang salah/meleset.
+function fmtJamBooking(v){
+  if(!v) return '-';
+  if(/^\d{1,2}:\d{2}/.test(String(v))) return String(v);
+  return '-';
+}
 async function renderBooking(){
   setMain(skeletonRows(4));
   const res = await apiGet('listBooking');
@@ -3610,22 +3686,24 @@ async function renderBooking(){
     <div class="panel">${dataTable({
       id:'booking', rows:data, searchKeys:['BookingID','NamaCustomer','NoPolisi','Mekanik'],
       columns:[
-        {key:'BookingID', label:'No. Booking'},
+        {key:'BookingID', label:'No. Booking', render:b=>`<span class="link-id" onclick='viewBooking(${JSON.stringify(b)})'>${esc(b.BookingID)}</span>`},
         {key:'TglBooking', label:'Tanggal', render:b=>fmtDate(b.TglBooking)},
-        {key:'JamBooking', label:'Jam', render:b=>esc(b.JamBooking||'-')},
+        {key:'JamBooking', label:'Jam', render:b=>fmtJamBooking(b.JamBooking)},
         {key:'NamaCustomer', label:'Customer'},
         {key:'NoPolisi', label:'No Polisi'},
         {key:'Mekanik', label:'Mekanik', render:b=>esc(b.Mekanik||'-')},
         {key:'SourceReminderID', label:'Sumber', render:b=>b.SourceReminderID?'Reminder':'Manual'},
         {key:'Status', label:'Status', render:b=>statusBadge(b.Status, BOOKING_STATUS_BADGE)}
-      ],
-      rowActions:b=>bookingRowActions(b)
+      ]
     })}</div>
   `);
   initTable('booking');
 }
-function bookingRowActions(b){
-  const btns = [`<button class="btn ghost sm" onclick='viewBooking(${JSON.stringify(b)})'>Detail</button>`];
+// Tombol aksi (Konfirmasi/Check-in/No Show/Batalkan) SENGAJA tidak lagi ditaruh di baris tabel (dulu
+// jumlahnya beda-beda per baris tergantung status, jadi tabelnya jadi berantakan) - sekarang klik No.
+// Booking dulu untuk buka detail, baru tombol aksi yang relevan muncul di footer drawer.
+function bookingActionButtons(b){
+  const btns = [];
   if(b.Status==='Booked') btns.push(`<button class="btn accent sm" onclick="confirmBookingUI('${b.BookingID}')">Konfirmasi</button>`);
   if(b.Status==='Confirmed') btns.push(`<button class="btn good sm" onclick="checkinBookingUI('${b.BookingID}')">Check-in</button>`, `<button class="btn secondary sm" onclick="noShowBookingUI('${b.BookingID}')">No Show</button>`);
   if(['Booked','Confirmed'].indexOf(b.Status)!==-1) btns.push(`<button class="btn critical sm" onclick="cancelBookingUI('${b.BookingID}')">Batalkan</button>`);
@@ -3636,7 +3714,7 @@ function viewBooking(b){
     <div class="drawer-head"><h3>Booking ${esc(b.BookingID)}</h3><button class="drawer-close" onclick="closeDrawer()">&times;</button></div>
     <div class="drawer-body">
       <div class="grid3">
-        <div class="kv"><span>Tanggal &amp; Jam</span><b>${fmtDate(b.TglBooking)} ${esc(b.JamBooking||'-')}</b></div>
+        <div class="kv"><span>Tanggal &amp; Jam</span><b>${fmtDate(b.TglBooking)} ${fmtJamBooking(b.JamBooking)}</b></div>
         <div class="kv"><span>Customer</span><b>${esc(b.NamaCustomer)}</b></div>
         <div class="kv"><span>No HP</span><b>${esc(b.NoHP||'-')}</b></div>
         <div class="kv"><span>No Polisi</span><b>${esc(b.NoPolisi)}</b></div>
@@ -3646,11 +3724,14 @@ function viewBooking(b){
       <p class="sub" style="margin:10px 0;"><b>Keluhan:</b> ${esc(b.Keluhan||'-')}</p>
       ${b.Catatan?`<p class="sub"><b>Catatan:</b> ${esc(b.Catatan)}</p>`:''}
       ${b.SourceReminderID?`<p class="sub">Dibuat dari tindak lanjut Reminder <b>${esc(b.SourceReminderID)}</b>.</p>`:''}
-      ${b.ConvertedEstimasiID?`<p class="sub" style="color:var(--good,#0a8f0a);">✓ Sudah Check-in, otomatis jadi Estimasi <b>${esc(b.ConvertedEstimasiID)}</b> - cari nomor ini di menu Estimasi utk isi part/jasa.</p>`:''}
+      ${b.ConvertedEstimasiID?`<p class="sub" style="color:var(--good,#0a8f0a);">✓ Sudah Check-in, otomatis jadi Estimasi <b>${esc(b.ConvertedEstimasiID)}</b>. Untuk isi part/jasa: buka menu <b>Create New Order (WO)</b>, lalu muat nomor ini lewat kolom "Muat dari Nomor Estimasi" (menu Estimasi sendiri read-only, tambah item dilakukan di form WO).</p>`:''}
       ${b.CancelReason?`<p class="sub">Alasan batal: ${esc(b.CancelReason)}</p>`:''}
       <p class="sub">Dibuat oleh ${esc(b.CreatedBy||'-')} pada ${fmtDate(b.CreatedAt)}.</p>
     </div>
-    <div class="drawer-foot"><button class="btn secondary" onclick="closeDrawer()">Tutup</button></div>
+    <div class="drawer-foot">
+      <button class="btn secondary" onclick="closeDrawer()">Tutup</button>
+      <div style="display:flex;gap:8px;">${bookingActionButtons(b)}</div>
+    </div>
   `);
 }
 async function confirmBookingUI(id){
@@ -3662,7 +3743,7 @@ async function checkinBookingUI(id){
   if(!confirm('Check-in booking ini? Sistem akan otomatis membuat Estimasi kosong untuk diisi SA.')) return;
   const actor = getActor();
   const res = await apiPost('checkinBooking', {BookingID:id, ActorName:actor.name});
-  if(res.success){ toast('Check-in berhasil, Estimasi '+res.estimasiId+' dibuat.'); closeDrawer(); renderBooking(); } else toast(res.message,true);
+  if(res.success){ toast('Check-in berhasil, Estimasi '+res.estimasiId+' dibuat - muat nomor ini di menu Create New Order (WO) utk isi part/jasa.'); closeDrawer(); renderBooking(); } else toast(res.message,true);
 }
 async function noShowBookingUI(id){
   if(!confirm('Tandai booking ini sebagai No Show?')) return;
@@ -4185,48 +4266,6 @@ async function renderHistory(tipe){
   initTable('hist'+tipe);
 }
 
-/* ================= KARTU STOK ================= */
-async function renderKartuStok(){
-  setMain(skeletonRows(3));
-  const pres = await apiGet('listPart'); window.__parts = pres.data||[];
-  setMain(`
-    <div class="page-head"><div><h2>Kartu Stok</h2><p>Riwayat mutasi per part — dihitung dari mutasi, bukan input manual</p></div></div>
-    <div class="panel">
-      <label>Pilih Part</label>
-      <select id="ks_part" onchange="loadKartuStok()">${window.__parts.map(p=>`<option value="${p.PartNumber}">${esc(p.PartNumber)} - ${esc(p.PartName)}</option>`).join('')}</select>
-    </div>
-    <div id="ks_result"></div>
-  `);
-  loadKartuStok();
-}
-async function loadKartuStok(){
-  const pn = val('ks_part');
-  const res = await apiGet('getKartuStok', {partNumber:pn});
-  if(!res.success){ document.getElementById('ks_result').innerHTML = `<div class="panel">${emptyState(res.message)}</div>`; return; }
-  const {part, history} = res.data;
-  const trendVals = history.slice(-12).map(h=>Number(h.StokSesudah));
-  const trendLabels = history.slice(-12).map(h=>fmtDate(h.Tgl));
-  document.getElementById('ks_result').innerHTML = `
-    <div class="cards">
-      <div class="stat-card"><div class="label">Stok Akhir</div><div class="value">${part.StokAkhir}</div></div>
-      <div class="stat-card"><div class="label">Stok Minimum</div><div class="value">${part.StokMinimum}</div></div>
-      <div class="stat-card"><div class="label">Lokasi</div><div class="value" style="font-size:16px;">${esc(part.Lokasi)||'-'}</div></div>
-    </div>
-    ${trendVals.length>1 ? `<div class="panel"><h3>Tren Stok (mutasi terakhir)</h3><div id="ks_line"></div></div>` : ''}
-    <div class="panel">
-      ${history.length===0 ? emptyState('Belum ada mutasi.') : `<table><tr><th>Tgl</th><th>Tipe</th><th>Qty</th><th>Sumber</th><th>Reference</th><th>Stok Sebelum</th><th>Stok Sesudah</th></tr>
-      ${history.slice().reverse().map(h=>`<tr><td>${fmtDate(h.Tgl)}</td><td><span class="badge ${h.Tipe==='Inbound'?'good':'critical'}"><span class="dot"></span>${h.Tipe}</span></td><td class="num">${h.Qty}</td><td>${esc(h.Sumber)}</td><td>${esc(h.Reference)}</td><td class="num">${h.StokSebelum}</td><td class="num">${h.StokSesudah}</td></tr>`).join('')}
-      </table>`}
-    </div>
-  `;
-  if(trendVals.length>1){
-    const lc = lineChart(trendLabels, trendVals);
-    const ksLine = document.getElementById('ks_line');
-    ksLine.innerHTML = lc.svg;
-    attachLineChart(ksLine, lc);
-    attachLineTooltip(ksLine, lc.pts);
-  }
-}
 
 /* ================= STOCK OPNAME ================= */
 // Konsep: snapshot stok sistem (dari Inventory Master) dibandingkan hasil hitung fisik gudang.
