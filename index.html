@@ -2794,9 +2794,9 @@ async function formEstimasi(){
   openDrawer(`
     <div class="drawer-head"><h3>Buat Estimasi</h3><button class="drawer-close" onclick="closeDrawer()">&times;</button></div>
     <div class="drawer-body wide-body">
-      <p class="sub" style="margin:0 0 14px;">Estimasi belum mengunci stok maupun jadwal - cocok dipakai saat customer masih tanya-tanya perkiraan biaya dan belum pasti jadi service. Kalau customer jadi service, cari nomor Estimasi ini di form <b>Buat Work Order</b> supaya tidak perlu input ulang.</p>
       <div class="wo-grid">
         <div class="wo-col">
+          <p class="sub" style="margin:0 0 16px;">Estimasi belum mengunci stok maupun jadwal - cocok dipakai saat customer masih tanya-tanya perkiraan biaya dan belum pasti jadi service. Kalau customer jadi service, cari nomor Estimasi ini di form <b>Buat Work Order</b> supaya tidak perlu input ulang.</p>
           <label>Cari Customer / No Polisi / No Rangka (VIN)</label>
           ${comboSearchHtml('wo_veh_combo', 'Ketik nama, No HP, No Polisi, atau No Rangka...')}
           <input type="hidden" id="wo_cust_id">
