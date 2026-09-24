@@ -483,6 +483,10 @@ const NAV = [
   {group:'Part Direct Sales', items:[
     {id:'pds', label:'Part Direct Sales', icon:'part'},
   ]},
+  {group:'Reminder, Booking & Follow Up', items:[
+    {id:'reminder', label:'Reminder Jatuh Tempo Service', icon:'warning'},
+    {id:'followup', label:'Follow Up After Service', icon:'customer'},
+  ]},
   {group:'Purchasing Order', items:[
     {id:'po-created', label:'Pengajuan PO', icon:'po'},
     {id:'po-approval', label:'Approval PO', icon:'approve'},
@@ -1000,6 +1004,8 @@ const views = {
   workorder: renderWorkOrder,
   estimasi: renderEstimasi,
   pds: renderPDS,
+  reminder: renderReminderDue,
+  followup: renderFollowUp,
   'wo-order-query': renderOrderQuery,
   'wo-completed': ()=>renderWOStage('Completed'),
   'wo-invoice': ()=>renderWOStage('Invoice'),
@@ -1139,6 +1145,26 @@ function renderGuide(){
     </div>
 
     <div class="panel">
+      <h3>3d. Reminder Jatuh Tempo Service</h3>
+      <p style="font-size:13px;line-height:1.7;">Bagian dari grup <b>"Reminder, Booking & Follow Up"</b> - daftar kendaraan yang perlu diingatkan servis berikutnya, dihitung LIVE dari riwayat Work Order (tidak ada input manual tambahan).</p>
+      <ul style="font-size:13px;line-height:1.9;padding-left:18px;margin:0;">
+        <li><b>Dasar "due"</b>: gabungan interval Waktu (bulan sejak servis terakhir) ATAU interval KM (estimasi KM sekarang, diproyeksikan dari rata-rata km/bulan 2 servis terakhir kendaraan itu) - mana yang lebih dulu tercapai. Kendaraan yang baru 1x servis (belum ada baseline km/bulan) hanya dicek dari sisi waktu.</li>
+        <li>Pengaturan interval (default 6 bulan / 10.000 km) bisa diubah lewat panel di halaman ini, khusus <b>Super Admin</b>.</li>
+        <li>CRO catat hasil follow up: Booking Dibuat / Ditunda / Sudah Servis Di Tempat Lain / Tidak Berminat / Tidak Bisa Dihubungi. Kalau Ditunda, kendaraan itu tidak muncul lagi sampai tanggal tunda lewat.</li>
+      </ul>
+    </div>
+
+    <div class="panel">
+      <h3>3e. Follow Up After Service</h3>
+      <p style="font-size:13px;line-height:1.7;">Satu grup dengan Reminder di atas - untuk sekarang Booking di grup yang sama masih menyusul di pengembangan berikutnya.</p>
+      <ul style="font-size:13px;line-height:1.9;padding-left:18px;margin:0;">
+        <li>Setiap WO yang mencapai status <b>Vehicle Delivery</b> otomatis dibuatkan 1 baris Follow Up (Status: Belum Follow Up) - tidak perlu dibuat manual.</li>
+        <li>CRO/SA membuka baris tsb, catat hasil hubungi customer: Puas / Kurang Puas / Ada Keluhan + catatan bebas → jadi Sudah Dihubungi. Kalau tidak bisa dihubungi, klik "Tidak Bisa Dihubungi" (bisa dicoba lagi kapan saja).</li>
+        <li><b>Penting</b>: modul ini SENGAJA tidak menghitung skor NPS resmi - murni monitor suara pelanggan untuk CRO. Skor NPS akan ditangani sistem NPS terpisah, data di sini bisa jadi salah satu sumber datanya nanti.</li>
+      </ul>
+    </div>
+
+    <div class="panel">
       <h3>4. Alur Purchasing Order (PO)</h3>
       ${guideFlow(
 `Pengajuan PO  ->  Status: PO Created
@@ -1211,6 +1237,9 @@ Work Order
  \`- Vehicle Delivery
 Part Direct Sales
  \`- Part Direct Sales
+Reminder, Booking & Follow Up
+ |- Reminder Jatuh Tempo Service
+ \`- Follow Up After Service   (Booking menyusul)
 Purchasing Order
  |- Pengajuan PO
  |- Approval PO
@@ -3345,6 +3374,186 @@ async function printPDS(pdsId){
     toggleInvoicePPN();
   <\/script>` : '';
   openPrintWindow(buildPrintDocument(isInvoice?'INVOICE':'NOTA PART DIRECT SALES', isInvoice?(header.InvoiceNumber||header.PDSID):header.PDSID, body, getPrintCss(), script));
+}
+
+/* ================= REMINDER JATUH TEMPO SERVICE (grup "Reminder, Booking & Follow Up") =================
+   Daftar "siapa yang perlu diingatkan" dihitung LIVE oleh backend (computeReminderDue()) dari riwayat WO
+   kendaraan itu sendiri - tidak ada data master tambahan yang perlu diisi manual. Due = interval WAKTU
+   (bulan sejak servis terakhir) ATAU interval KM (estimasi KM sekarang, diproyeksikan dari rata-rata
+   km/bulan 2 servis terakhir kendaraan itu) - mana yang lebih dulu tercapai. CRO mencatat hasil tindak
+   lanjut; kalau "Ditunda", kendaraan itu tidak muncul lagi sampai tanggal tunda lewat. */
+const REMINDER_STATUS_BADGE = {'Belum Dihubungi':'s4', 'Booking Dibuat':'good', 'Ditunda':'s1', 'Servis Di Tempat Lain':'s7', 'Tidak Berminat':'critical', 'Tidak Bisa Dihubungi':'critical'};
+async function renderReminderDue(){
+  setMain(skeletonRows(4));
+  const [dueRes, cfgRes] = await Promise.all([apiGet('listReminderDue'), apiGet('getReminderConfig')]);
+  const data = dueRes.data||[];
+  const cfg = cfgRes.data||{IntervalBulan:6, IntervalKm:10000};
+  window['__rawdata_reminder'] = data;
+  const actor = getActor();
+  setMain(`
+    <div class="page-head">
+      <div><h2>Reminder Jatuh Tempo Service</h2><p>Daftar kendaraan yang sudah waktunya/kilometernya diingatkan untuk servis berikutnya - dihitung otomatis dari riwayat Work Order (${data.length} kendaraan perlu ditindaklanjuti)</p></div>
+    </div>
+    ${actor.role==='Super Admin' ? `
+    <div class="panel" style="margin-bottom:12px;">
+      <h3 style="font-size:13px;margin-bottom:8px;">Pengaturan Interval Reminder</h3>
+      <div class="row-line" style="flex-wrap:wrap;gap:10px;align-items:flex-end;">
+        <div><label style="font-size:11px;display:block;">Interval Waktu (bulan)</label><input id="rem_cfg_bulan" type="number" value="${cfg.IntervalBulan}" style="width:100px;"></div>
+        <div><label style="font-size:11px;display:block;">Interval KM</label><input id="rem_cfg_km" type="number" value="${cfg.IntervalKm}" style="width:120px;"></div>
+        <button class="btn outline sm" onclick="saveReminderConfigUI()">Simpan Pengaturan</button>
+      </div>
+      <p class="sub" style="margin:8px 0 0;">Kendaraan dianggap "due" kalau sudah lewat interval waktu ATAU interval KM (estimasi) sejak servis terakhir - mana yang lebih dulu tercapai.</p>
+    </div>` : ''}
+    <div class="panel">${dataTable({
+      id:'reminder', rows:data, searchKeys:['NoPolisi','NamaCustomer','NoHP'],
+      columns:[
+        {key:'NoPolisi', label:'No Polisi'},
+        {key:'NamaCustomer', label:'Customer'},
+        {key:'NoHP', label:'No HP', render:r=>esc(r.NoHP||'-')},
+        {key:'LastServiceDate', label:'Servis Terakhir', render:r=>fmtDate(r.LastServiceDate)},
+        {key:'MonthsSince', label:'Sudah (bulan)', numeric:true, render:r=>r.MonthsSince},
+        {key:'LastKM', label:'KM Terakhir', numeric:true, render:r=>Number(r.LastKM).toLocaleString('id-ID')},
+        {key:'EstimasiKM', label:'Estimasi KM Sekarang', numeric:true, render:r=>r.EstimasiKM!=null?Number(r.EstimasiKM).toLocaleString('id-ID'):'-'},
+        {key:'DueReason', label:'Alasan Due', render:r=>esc(r.DueReason)},
+        {key:'Status', label:'Status', render:r=>statusBadge(r.Status, REMINDER_STATUS_BADGE)}
+      ],
+      rowActions:r=>`<button class="btn ${r.Status==='Belum Dihubungi'?'accent':'ghost'} sm" onclick='formReminderAction(${JSON.stringify(r)})'>${r.Status==='Belum Dihubungi'?'Follow Up':'Lihat / Ulangi'}</button>`
+    })}</div>
+  `);
+  initTable('reminder');
+}
+async function saveReminderConfigUI(){
+  const actor = getActor();
+  const res = await apiPost('saveReminderConfig', {IntervalBulan: val('rem_cfg_bulan'), IntervalKm: val('rem_cfg_km'), ActorRole: actor.role});
+  if(res.success){ toast('Pengaturan interval tersimpan.'); renderReminderDue(); } else toast(res.message, true);
+}
+function formReminderAction(r){
+  openDrawer(`
+    <div class="drawer-head"><h3>Reminder - ${esc(r.NoPolisi)}</h3><button class="drawer-close" onclick="closeDrawer()">&times;</button></div>
+    <div class="drawer-body">
+      <div class="grid3">
+        <div class="kv"><span>Customer</span><b>${esc(r.NamaCustomer)}</b></div>
+        <div class="kv"><span>No HP</span><b>${esc(r.NoHP||'-')}</b></div>
+        <div class="kv"><span>Servis Terakhir</span><b>${fmtDate(r.LastServiceDate)} (${r.MonthsSince} bulan lalu)</b></div>
+        <div class="kv"><span>KM Terakhir</span><b>${Number(r.LastKM).toLocaleString('id-ID')}</b></div>
+        <div class="kv"><span>Estimasi KM Sekarang</span><b>${r.EstimasiKM!=null?Number(r.EstimasiKM).toLocaleString('id-ID'):'-'}</b></div>
+        <div class="kv"><span>Alasan Due</span><b>${esc(r.DueReason)}</b></div>
+      </div>
+      ${r.Status!=='Belum Dihubungi' ? `<p class="sub" style="margin:10px 0;">Hasil terakhir: <b>${esc(r.Status)}</b> oleh ${esc(r.FollowUpBy||'-')} pada ${fmtDate(r.TglFollowUp)}${r.Catatan?(' - "'+esc(r.Catatan)+'"'):''}. Bisa dicatat ulang di bawah kalau perlu.</p>` : ''}
+      <label>Hasil Follow Up</label>
+      <select id="rem_status">
+        <option value="">- Pilih -</option>
+        <option value="Booking Dibuat">Booking Dibuat</option>
+        <option value="Ditunda">Ditunda (customer minta dihubungi lagi nanti)</option>
+        <option value="Servis Di Tempat Lain">Sudah Servis Di Tempat Lain</option>
+        <option value="Tidak Berminat">Tidak Berminat</option>
+        <option value="Tidak Bisa Dihubungi">Tidak Bisa Dihubungi</option>
+      </select>
+      <div id="rem_snooze_wrap" style="display:none;">
+        <label>Tunda Sampai Tanggal</label>
+        <input type="date" id="rem_snooze_date">
+      </div>
+      <label>Catatan (opsional)</label>
+      <textarea id="rem_catatan" placeholder="Mis. alasan tunda, rencana booking, dll."></textarea>
+    </div>
+    <div class="drawer-foot">
+      <button class="btn secondary" onclick="closeDrawer()">Tutup</button>
+      <button class="btn good" onclick='submitReminderLog(${JSON.stringify(r)})'>Simpan Hasil</button>
+    </div>
+  `);
+  const statusEl = document.getElementById('rem_status');
+  if(statusEl) statusEl.addEventListener('change', function(){
+    const wrap = document.getElementById('rem_snooze_wrap');
+    if(wrap) wrap.style.display = this.value==='Ditunda' ? 'block' : 'none';
+  });
+}
+async function submitReminderLog(r){
+  const status = val('rem_status');
+  if(!status){ toast('Pilih dulu hasil follow up.', true); return; }
+  if(status==='Ditunda' && !val('rem_snooze_date')){ toast('Isi dulu tanggal tunda.', true); return; }
+  const actor = getActor();
+  const res = await apiPost('updateReminderLog', {
+    ReminderID: r.ReminderID || '', VehicleID: r.VehicleID, NoPolisi: r.NoPolisi, CustomerID: r.CustomerID,
+    NamaCustomer: r.NamaCustomer, NoHP: r.NoHP, LastServiceDate: r.LastServiceDate, LastKM: r.LastKM, DueReason: r.DueReason,
+    Status: status, SnoozeUntil: val('rem_snooze_date'), Catatan: val('rem_catatan'), ActorName: actor.name
+  });
+  if(res.success){ toast('Hasil reminder tersimpan.'); closeDrawer(); renderReminderDue(); } else toast(res.message,true);
+}
+
+/* ================= FOLLOW UP AFTER SERVICE (grup "Reminder, Booking & Follow Up") =================
+   Baris di sini dibuat OTOMATIS oleh backend setiap kali sebuah WO mencapai status Vehicle Delivery
+   (lihat createFollowUpForWO() di Code.gs) - jadi menu ini murni tempat CRO/SA mencatat hasil menghubungi
+   customer pasca servis (puas/tidak + catatan bebas). SENGAJA TIDAK menghitung skor NPS resmi - itu akan
+   ditangani sistem NPS terpisah nanti; sheet Follow_Up ini cukup jadi salah satu sumber data mentahnya. */
+const FOLLOWUP_STATUS_BADGE = {'Belum Follow Up':'s4', 'Sudah Dihubungi':'good', 'Tidak Bisa Dihubungi':'critical'};
+async function renderFollowUp(){
+  setMain(skeletonRows(4));
+  const res = await apiGet('listFollowUp');
+  const data = (res.data||[]).sort((a,b)=>new Date(b.TglVehicleDelivery)-new Date(a.TglVehicleDelivery));
+  window['__rawdata_followup'] = data;
+  const belum = data.filter(f=>f.Status==='Belum Follow Up').length;
+  setMain(`
+    <div class="page-head">
+      <div><h2>Follow Up After Service</h2><p>Daftar customer yang unitnya sudah selesai (Vehicle Delivery) untuk dihubungi CRO/SA - monitor suara pelanggan, bukan penghitung skor NPS resmi (${data.length} total, ${belum} belum di-follow up)</p></div>
+    </div>
+    ${filterBarHtml('followup', [
+      {key:'Status', label:'Status', options:['Belum Follow Up','Sudah Dihubungi','Tidak Bisa Dihubungi']}
+    ], 'TglVehicleDelivery')}
+    <div class="panel">${dataTable({
+      id:'followup', rows:data, searchKeys:['WOID','NamaCustomer','NoPolisi','NoHP'],
+      columns:[
+        {key:'WOID', label:'No. WO', render:f=>`<span class="link-id" onclick="viewWorkOrder('${f.WOID}')">${esc(f.WOID)}</span>`},
+        {key:'TglVehicleDelivery', label:'Tgl Selesai', render:f=>fmtDate(f.TglVehicleDelivery)},
+        {key:'NamaCustomer', label:'Customer'},
+        {key:'NoPolisi', label:'No Polisi'},
+        {key:'NoHP', label:'No HP', render:f=>esc(f.NoHP||'-')},
+        {key:'Status', label:'Status Follow Up', render:f=>statusBadge(f.Status, FOLLOWUP_STATUS_BADGE)},
+        {key:'Puas', label:'Puas?', render:f=>f.Puas ? esc(f.Puas) : '-'}
+      ],
+      rowActions:f=>`<button class="btn ${f.Status==='Belum Follow Up'?'accent':'ghost'} sm" onclick='formFollowUp(${JSON.stringify(f)})'>${f.Status==='Belum Follow Up'?'Follow Up':'Lihat / Ulangi'}</button>`
+    })}</div>
+  `);
+  initTable('followup');
+}
+function formFollowUp(f){
+  openDrawer(`
+    <div class="drawer-head"><h3>Follow Up - ${esc(f.WOID)}</h3><button class="drawer-close" onclick="closeDrawer()">&times;</button></div>
+    <div class="drawer-body">
+      <div class="grid3">
+        <div class="kv"><span>Customer</span><b>${esc(f.NamaCustomer)}</b></div>
+        <div class="kv"><span>No HP</span><b>${esc(f.NoHP||'-')}</b></div>
+        <div class="kv"><span>No Polisi</span><b>${esc(f.NoPolisi)}</b></div>
+        <div class="kv"><span>Tgl Selesai</span><b>${fmtDate(f.TglVehicleDelivery)}</b></div>
+        <div class="kv"><span>Status Saat Ini</span><b>${statusBadge(f.Status, FOLLOWUP_STATUS_BADGE)}</b></div>
+      </div>
+      ${f.Status!=='Belum Follow Up' ? `<p class="sub" style="margin:10px 0;">Hasil terakhir oleh <b>${esc(f.FollowUpBy||'-')}</b> pada ${fmtDate(f.TglFollowUp)}${f.Catatan?(' - "'+esc(f.Catatan)+'"'):''}. Bisa dicatat ulang di bawah kalau perlu.</p>` : ''}
+      <label>Apakah customer puas dengan hasil servis?</label>
+      <select id="fu_puas">
+        <option value="">- Pilih -</option>
+        <option value="Puas" ${f.Puas==='Puas'?'selected':''}>Puas</option>
+        <option value="Kurang Puas" ${f.Puas==='Kurang Puas'?'selected':''}>Kurang Puas</option>
+        <option value="Ada Keluhan" ${f.Puas==='Ada Keluhan'?'selected':''}>Ada Keluhan</option>
+      </select>
+      <label>Catatan (opsional)</label>
+      <textarea id="fu_catatan" placeholder="Mis. keluhan lanjutan, rencana servis berikutnya, dll.">${esc(f.Catatan||'')}</textarea>
+    </div>
+    <div class="drawer-foot">
+      <button class="btn secondary" onclick="closeDrawer()">Tutup</button>
+      <div style="display:flex;gap:8px;">
+        <button class="btn critical" id="fu_nocontact_btn" onclick="submitFollowUp('${f.FollowUpID}','Tidak Bisa Dihubungi')">Tidak Bisa Dihubungi</button>
+        <button class="btn good" id="fu_save_btn" onclick="submitFollowUp('${f.FollowUpID}','Sudah Dihubungi')">Simpan Hasil</button>
+      </div>
+    </div>
+  `);
+}
+async function submitFollowUp(followUpId, status){
+  if(status==='Sudah Dihubungi' && !val('fu_puas')){ toast('Pilih dulu status kepuasan customer.', true); return; }
+  const actor = getActor();
+  const res = await apiPost('updateFollowUp', {
+    FollowUpID: followUpId, Status: status, Puas: val('fu_puas'), Catatan: val('fu_catatan'),
+    ActorName: actor.name
+  });
+  if(res.success){ toast('Hasil follow up tersimpan.'); closeDrawer(); renderFollowUp(); } else toast(res.message,true);
 }
 
 /* ================= INVENTORY: PO CREATED ================= */
