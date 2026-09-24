@@ -111,6 +111,11 @@ body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;backgrou
 .btn.sm{padding:6px 11px;font-size:12px;border-radius:8px;}
 .btn.ghost{background:var(--surface-3);border:1px solid var(--border-strong);color:var(--ink-2);}
 .btn.ghost:hover{background:var(--border-strong);color:var(--ink);}
+.btn.is-busy{cursor:wait;opacity:.85;}
+.btn-spinner{display:inline-block;width:13px;height:13px;border-radius:50%;border:2px solid rgba(255,255,255,.5);
+  border-top-color:#fff;animation:btn-spin .6s linear infinite;flex-shrink:0;}
+.btn.secondary .btn-spinner,.btn.outline .btn-spinner,.btn.ghost .btn-spinner{border-color:rgba(60,70,90,.3);border-top-color:var(--ink);}
+@keyframes btn-spin{to{transform:rotate(360deg);}}
 
 .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:20px;}
 .stat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:17px 18px;
@@ -475,6 +480,9 @@ const NAV = [
     {id:'wo-invoice', label:'Invoice', icon:'wo'},
     {id:'wo-delivery', label:'Vehicle Delivery', icon:'wo'},
   ]},
+  {group:'Part Direct Sales', items:[
+    {id:'pds', label:'Part Direct Sales', icon:'part'},
+  ]},
   {group:'Purchasing Order', items:[
     {id:'po-created', label:'Pengajuan PO', icon:'po'},
     {id:'po-approval', label:'Approval PO', icon:'approve'},
@@ -591,6 +599,57 @@ async function apiPost(action, data={}){
     return await res.json();
   }catch(err){ return {success:false, message:'Gagal terhubung ke server: '+err.message}; }
 }
+
+/* ================= BUSY-BUTTON (spinner + auto-disable saat proses simpan/tambah) =================
+   Supaya tidak perlu edit satu-satu setiap tombol Simpan/Tambah di seluruh aplikasi (jumlahnya sangat
+   banyak), dipakai pendekatan generik: setiap klik tombol dicatat sebentar (400ms), lalu kalau klik itu
+   memicu pemanggilan apiGet/apiPost (deteksi via "membungkus" 2 fungsi itu), tombol yang tadi diklik
+   otomatis di-disable + diberi ikon spinner berputar sampai request-nya selesai (sukses ATAUPUN gagal).
+   Kalau klik ternyata cuma validasi client-side (mis. "Pilih Customer dulu" - tidak ada network call sama
+   sekali), tombol TIDAK disentuh sama sekali - tidak perlu spinner utk itu. */
+let __lastClickedBtn = null, __lastClickedAt = 0, __busyReqCount = 0, __activeBusyBtn = null;
+document.addEventListener('click', function(e){
+  const btn = e.target.closest('button');
+  if(btn){ __lastClickedBtn = btn; __lastClickedAt = Date.now(); }
+}, true);
+function setBtnBusy(btn, label){
+  if(!btn || btn.__busy) return;
+  btn.__busy = true;
+  btn.__origHtml = btn.innerHTML;
+  btn.disabled = true;
+  btn.classList.add('is-busy');
+  btn.innerHTML = '<span class="btn-spinner"></span> ' + (label||'Memproses...');
+}
+function clearBtnBusy(btn){
+  if(!btn || !btn.__busy) return;
+  btn.__busy = false;
+  btn.disabled = false;
+  btn.classList.remove('is-busy');
+  if(btn.__origHtml !== undefined) btn.innerHTML = btn.__origHtml;
+}
+function __busyReqStart(){
+  __busyReqCount++;
+  if(__lastClickedBtn && (Date.now()-__lastClickedAt) < 400 && !__lastClickedBtn.disabled){
+    setBtnBusy(__lastClickedBtn);
+    __activeBusyBtn = __lastClickedBtn;
+    __lastClickedBtn = null; // "dipakai" sekali - supaya request lain yg tidak terkait tidak ikut ngambil tombol lama ini
+  }
+}
+function __busyReqEnd(){
+  __busyReqCount = Math.max(0, __busyReqCount-1);
+  const btnRef = __activeBusyBtn;
+  if(__busyReqCount===0 && btnRef){
+    // jeda sangat singkat sebelum restore, supaya kalau fungsi yg sama langsung lanjut ke request berikutnya
+    // (mis. createWorkOrder lalu convertEstimasi) tombolnya tidak sempat "berkedip" balik aktif di antaranya.
+    setTimeout(function(){ if(__busyReqCount===0){ clearBtnBusy(btnRef); if(__activeBusyBtn===btnRef) __activeBusyBtn=null; } }, 60);
+  }
+}
+(function(){
+  const _apiGet = apiGet, _apiPost = apiPost;
+  apiGet = async function(...args){ __busyReqStart(); try{ return await _apiGet(...args); } finally { __busyReqEnd(); } };
+  apiPost = async function(...args){ __busyReqStart(); try{ return await _apiPost(...args); } finally { __busyReqEnd(); } };
+})();
+
 function toast(msg, isError=false){
   const stack = document.getElementById('toastStack');
   const t = document.createElement('div');
@@ -940,6 +999,7 @@ const views = {
   karyawan: renderKaryawan,
   workorder: renderWorkOrder,
   estimasi: renderEstimasi,
+  pds: renderPDS,
   'wo-order-query': renderOrderQuery,
   'wo-completed': ()=>renderWOStage('Completed'),
   'wo-invoice': ()=>renderWOStage('Invoice'),
@@ -2148,8 +2208,12 @@ function woItemsTableHtml(items, nameKey, priceKey, removeFnName, emptyLabel){
   </div>`;
 }
 function renderWOLists(){
-  document.getElementById('wo_part_list').innerHTML = woItemsTableHtml(woCart.parts, 'PartName', 'Harga', 'removeWOPart', 'Belum ada part.');
-  document.getElementById('wo_labor_list').innerHTML = woItemsTableHtml(woCart.labors, 'LaborName', 'Harga', 'removeWOLabor', 'Belum ada jasa.');
+  // Beberapa elemen (mis. Labor/Sublet) sengaja tidak ada sama sekali di form Part Direct Sales (cuma jual
+  // part, tanpa jasa/sublet) - makanya semua lookup di sini pakai null-check, bukan diasumsikan selalu ada.
+  const partListEl = document.getElementById('wo_part_list');
+  if(partListEl) partListEl.innerHTML = woItemsTableHtml(woCart.parts, 'PartName', 'Harga', 'removeWOPart', 'Belum ada part.');
+  const laborListEl = document.getElementById('wo_labor_list');
+  if(laborListEl) laborListEl.innerHTML = woItemsTableHtml(woCart.labors, 'LaborName', 'Harga', 'removeWOLabor', 'Belum ada jasa.');
   const subletListEl = document.getElementById('wo_sublet_list');
   if(subletListEl) subletListEl.innerHTML = woItemsTableHtml(woCart.sublets, 'SubletName', 'HargaJual', 'removeWOSublet', 'Belum ada sublet.');
 
@@ -3016,6 +3080,197 @@ async function printEstimasi(estId){
     <p style="font-size:11.5px;color:#555;">*Estimasi ini adalah perkiraan biaya dan dapat berubah menyesuaikan kondisi kendaraan saat pengerjaan sebenarnya, serta belum mengunci ketersediaan stok part.</p>
   `;
   openPrintWindow(buildPrintDocument('ESTIMASI BIAYA', header.EstimasiID, body, getPrintCss()));
+}
+
+/* ================= PART DIRECT SALES (jual part langsung, tanpa jasa/sublet/proses servis) =================
+   Alur SENGAJA lebih pendek dari Work Order: New (dibuat Part Staff, stok LANGSUNG terpotong saat itu juga -
+   tidak ada tahap Material Picking terpisah) -> Invoice (oleh Kasir, dapat No. Invoice otomatis - satu deret
+   nomor yang sama dgn Invoice WO). Tidak ada Dispatching/Completed/Vehicle Delivery sama sekali. */
+const PDS_STATUS_BADGE = {'New':'s1', 'Invoice':'good', 'Cancelled':'critical'};
+async function renderPDS(){
+  setMain(skeletonRows(4));
+  const res = await apiGet('listPDS');
+  const data = (res.data||[]).sort((a,b)=>new Date(b.CreatedAt)-new Date(a.CreatedAt));
+  window['__rawdata_pds'] = data;
+  setMain(`
+    <div class="page-head">
+      <div><h2>Part Direct Sales</h2><p>Transaksi jual part langsung ke customer - tanpa jasa/sublet, tanpa proses servis kendaraan (${data.length} transaksi)</p></div>
+      <button class="btn" onclick="formPDS()">${icon('plus')} Buat Order Part</button>
+    </div>
+    ${filterBarHtml('pds', [
+      {key:'Status', label:'Status', options:['New','Invoice','Cancelled']}
+    ], 'TglPDS')}
+    <div class="panel">${dataTable({
+      id:'pds', rows:data, searchKeys:['PDSID','NamaCustomer','InvoiceNumber'],
+      columns:[
+        {key:'PDSID', label:'No. Transaksi', render:w=>`<span class="link-id" onclick="viewPDS('${w.PDSID}')">${esc(w.PDSID)}</span>`},
+        {key:'TglPDS', label:'Tgl', render:w=>fmtDate(w.TglPDS)},
+        {key:'NamaCustomer', label:'Customer'},
+        {key:'Status', label:'Status', render:w=>statusBadge(w.Status, PDS_STATUS_BADGE)},
+        {key:'InvoiceNumber', label:'No. Invoice', render:w=>esc(w.InvoiceNumber||'-')},
+        {key:'TotalPDS', label:'Total', numeric:true, render:w=>fmtMoneyFull(w.TotalPDS)}
+      ],
+      rowActions:w=>`<button class="btn ghost sm" onclick="viewPDS('${w.PDSID}')">Detail</button>`
+    })}</div>
+  `);
+  initTable('pds');
+}
+async function formPDS(){
+  const boot = await getWOFormMasterData();
+  window.__customers = boot.customers; window.__parts = boot.parts;
+  woCart = { parts:[], labors:[], sublets:[] };
+  woFormMode = 'pds';
+  openDrawer(`
+    <div class="drawer-head"><h3>Buat Part Direct Sales</h3><button class="drawer-close" onclick="closeDrawer()">&times;</button></div>
+    <div class="drawer-body wide-body">
+      <div class="wo-grid">
+        <div class="wo-col">
+          <p class="sub" style="margin:0 0 16px;">Transaksi jual part langsung ke customer - tanpa jasa/sublet dan tanpa proses servis kendaraan. Stok akan <b>langsung terpotong</b> begitu transaksi ini disimpan (tidak ada tahap Material Picking terpisah seperti Work Order).</p>
+          <label>Cari Customer (Nama / No HP)</label>
+          ${comboSearchHtml('pds_cust_combo', 'Ketik nama atau No HP customer...')}
+          <p class="sub" style="margin:6px 0 14px;">Customer belum terdaftar? Tambahkan dulu lewat menu Customer.</p>
+          <label>Catatan (opsional)</label><textarea id="pds_catatan"></textarea>
+
+          <div id="wo_items_section" class="wo-items-section locked">
+            <div class="wo-lock-hint" id="wo_lock_hint">🔒 Pilih dulu Customer di atas sebelum menambah Part.</div>
+
+            <h3 style="font-size:13.5px;margin-bottom:8px;">Part (dari Part Master)</h3>
+            <div class="row-line">
+              <div style="flex:2"><label style="font-size:11px;">Cari Part</label>${comboSearchHtml('wo_part_combo','Cari No Part / Nama Part...')}</div>
+              <div style="width:60px"><label style="font-size:11px;">Qty</label><input id="wo_part_qty" type="number" value="1"></div>
+              <div style="width:70px"><label style="font-size:11px;">Diskon</label><input id="wo_part_disc" type="number" value="0" step="0.01" class="item-disc-input" title="Diskon (mis. 0.1 = 10%)" placeholder="0.1"></div>
+              <button class="btn accent sm" onclick="addWOPart()">+ Add</button>
+            </div>
+            <div id="wo_part_list"></div>
+          </div>
+        </div>
+        <div class="wo-col wo-col-right">
+          <h3 style="font-size:13.5px;margin-bottom:10px;">Ringkasan</h3>
+          <div class="panel" style="background:var(--surface);">
+            <div class="kv"><span>Subtotal (Kotor)</span><b id="wo_subtotal_preview">Rp 0</b></div>
+            <div class="kv"><span>Total Diskon</span><b id="wo_diskon_preview">Rp 0</b></div>
+            <div class="kv"><span>Total Transaksi</span><b id="wo_total_preview">Rp 0</b></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="drawer-foot"><button class="btn secondary" onclick="closeDrawer()">Batal</button>
+    <button class="btn" id="pds_submit_btn" onclick="submitPDS()">Simpan Part Direct Sales</button></div>
+  `, true);
+  attachComboSearch('pds_cust_combo', window.__customers, {
+    getLabel:c=>`${c.Nama} — ${c.NoHP||'(tanpa No HP)'}`,
+    getSub:c=>c.Alamat||'',
+    getValue:c=>c.CustomerID,
+    searchText:c=>`${c.Nama} ${c.NoHP}`,
+    onSelect:()=>{
+      const sec = document.getElementById('wo_items_section'); if(sec) sec.classList.remove('locked');
+      const hint = document.getElementById('wo_lock_hint'); if(hint) hint.style.display = 'none';
+    }
+  });
+  attachComboSearch('wo_part_combo', window.__parts, {
+    getLabel:p=>`${p.PartNumber} - ${p.PartName}`,
+    getSub:p=>Number(p.StokAkhir)<=0 ? `⚠ STOK HABIS · ${fmtMoneyFull(p.HargaJual)}` : `Stok: ${p.StokAkhir} · ${fmtMoneyFull(p.HargaJual)}`,
+    getValue:p=>p.PartNumber,
+    searchText:p=>`${p.PartNumber} ${p.PartName}`
+  });
+  renderWOLists();
+}
+async function submitPDS(){
+  const custId = val('pds_cust_combo');
+  if(!custId){ toast('Pilih Customer terlebih dahulu lewat kotak pencarian', true); return; }
+  if(woCart.parts.length===0){ toast('Tambahkan minimal 1 part terlebih dahulu', true); return; }
+  const grossOf = arr => arr.reduce((s,x)=>s+x.Harga*x.Qty,0);
+  const discOf = arr => arr.reduce((s,x)=>s+(x.Harga*x.Qty)*(x.DiskonPersen||0),0);
+  const totalDiskon = discOf(woCart.parts);
+  const actor = getActor();
+  const payload = {
+    CustomerID: custId, Catatan: val('pds_catatan'), Diskon: totalDiskon,
+    ActorRole: actor.role, ActorName: actor.name,
+    parts: woCart.parts.map(p=>({PartNumber:p.PartNumber, Qty:p.Qty}))
+  };
+  const res = await apiPost('createPDS', payload);
+  if(res.success){ toast('Part Direct Sales dibuat: '+res.id); invalidateWOFormCache(); closeDrawer(); renderPDS(); } else toast(res.message,true);
+}
+async function viewPDS(pdsId){
+  const res = await apiGet('getPDS', {id:pdsId});
+  if(!res.success){ toast(res.message,true); return; }
+  const {header, parts} = res.data;
+  const actor = getActor();
+  openDrawer(`
+    <div class="drawer-head"><h3>Part Direct Sales ${esc(header.PDSID)}</h3><button class="drawer-close" onclick="closeDrawer()">&times;</button></div>
+    <div class="drawer-body">
+      <div class="grid3">
+        <div class="kv"><span>Status</span><b>${statusBadge(header.Status, PDS_STATUS_BADGE)}</b></div>
+        <div class="kv"><span>Customer</span><b>${esc(header.NamaCustomer)}</b></div>
+        <div class="kv"><span>Tanggal</span><b>${fmtDate(header.TglPDS)}</b></div>
+        ${header.InvoiceNumber ? `<div class="kv"><span>No. Invoice</span><b>${esc(header.InvoiceNumber)}</b></div>` : ''}
+      </div>
+      ${header.Catatan ? `<p class="muted" style="font-size:13px;">Catatan: ${esc(header.Catatan)}</p>` : ''}
+      ${header.Status==='Cancelled' ? `<div class="danger-box">⚠ Transaksi ini <b>DIBATALKAN</b> oleh ${esc(header.CancelledBy||'-')} pada ${fmtDate(header.TglCancel)}.<br>Alasan: ${esc(header.CancelReason||'-')}</div>`:''}
+
+      <h3 style="font-size:13.5px;margin:14px 0 8px;">Part</h3>
+      <table><tr><th>Part</th><th>Qty</th><th>Harga</th><th>Subtotal</th></tr>
+        ${(parts||[]).map(p=>`<tr><td>${esc(p.PartName)}</td><td>${p.Qty}</td><td>${fmtMoneyFull(p.HargaSatuan)}</td><td>${fmtMoneyFull(p.Subtotal)}</td></tr>`).join('') || `<tr><td colspan="4">${emptyState('Tidak ada part')}</td></tr>`}
+      </table>
+      <div class="kv" style="margin-top:8px;"><span>Subtotal Part</span><b>${fmtMoneyFull(header.TotalPart)}</b></div>
+      ${Number(header.Diskon||0)>0?`<div class="kv"><span>Diskon</span><b>- ${fmtMoneyFull(header.Diskon)}</b></div>`:''}
+      <div class="kv" style="font-size:15px;margin-top:4px;"><span>Total Transaksi</span><b>${fmtMoneyFull(header.TotalPDS)}</b></div>
+    </div>
+    <div class="drawer-foot">
+      <div style="display:flex;gap:8px;">
+        <button class="btn secondary" onclick="closeDrawer()">Tutup</button>
+        <button class="btn ghost" onclick="printPDS('${header.PDSID}')">🖨 Cetak</button>
+      </div>
+      <div style="display:flex;gap:8px;">
+        ${header.Status==='New' ? `<button class="btn critical" onclick="doCancelPDS('${header.PDSID}')">${icon('warning')} Batalkan</button>` : ''}
+        ${header.Status==='New' ? `<button class="btn good" onclick="doInvoicePDS('${header.PDSID}')">${icon('approve')} Proses ke Invoice</button>` : ''}
+      </div>
+    </div>
+  `);
+}
+async function doInvoicePDS(pdsId){
+  const actor = getActor();
+  const res = await apiPost('updatePDSStatus', {PDSID:pdsId, ActorRole:actor.role, ActorName:actor.name});
+  if(res.success){ toast('Transaksi diproses ke Invoice'); viewPDS(pdsId); renderPDS(); } else toast(res.message,true);
+}
+function doCancelPDS(pdsId){
+  const reason = prompt('Alasan pembatalan transaksi ini:');
+  if(!reason){ toast('Pembatalan dibatalkan, alasan wajib diisi.', true); return; }
+  cancelPDSConfirmed(pdsId, reason);
+}
+async function cancelPDSConfirmed(pdsId, reason){
+  const actor = getActor();
+  const res = await apiPost('cancelPDS', {PDSID:pdsId, Reason:reason, ActorRole:actor.role, ActorName:actor.name});
+  if(res.success){ toast('Transaksi dibatalkan, stok dikembalikan'); closeDrawer(); renderPDS(); } else toast(res.message,true);
+}
+async function printPDS(pdsId){
+  const res = await apiGet('getPDS', {id:pdsId});
+  if(!res.success){ toast(res.message,true); return; }
+  const {header, parts} = res.data;
+  const isInvoice = header.Status==='Invoice';
+  const body = `
+    <div class="print-grid">
+      <div><span>No. ${isInvoice?'Invoice':'Transaksi'}</span><b>${esc(isInvoice?(header.InvoiceNumber||header.PDSID):header.PDSID)}</b></div>
+      <div><span>Tanggal</span><b>${fmtDate(header.TglPDS)}</b></div>
+      <div><span>Customer</span><b>${esc(header.NamaCustomer)}</b></div>
+      <div><span>Status</span><b>${esc(header.Status)}</b></div>
+    </div>
+    ${header.Catatan ? `<p style="font-size:12.5px;"><b>Catatan:</b> ${esc(header.Catatan)}</p>` : ''}
+    <table class="doc-table"><colgroup><col style="width:46%"><col style="width:12%"><col style="width:21%"><col style="width:21%"></colgroup><tr><th>Part</th><th class="num">Qty</th><th class="num">Harga</th><th class="num">Subtotal</th></tr>
+      ${(parts||[]).map(p=>`<tr><td>${esc(p.PartName)}</td><td class="num">${p.Qty}</td><td class="num">${fmtMoneyFull(p.HargaSatuan)}</td><td class="num">${fmtMoneyFull(p.Subtotal)}</td></tr>`).join('') || '<tr><td colspan="4">Tidak ada part</td></tr>'}
+    </table>
+    ${Number(header.Diskon||0)>0?`<div class="print-grid" style="grid-template-columns:1fr;text-align:right;">
+      <div style="display:flex;justify-content:flex-end;gap:18px;"><span>Subtotal</span><b>${fmtMoneyFull(header.TotalPart)}</b></div>
+      <div style="display:flex;justify-content:flex-end;gap:18px;"><span>Diskon</span><b>- ${fmtMoneyFull(header.Diskon)}</b></div>
+    </div>`:''}
+    <div class="print-total">TOTAL ${isInvoice?'INVOICE':'TRANSAKSI'}: ${fmtMoneyFull(header.TotalPDS)}</div>
+    ${isInvoice ? `<p style="font-size:11.5px;color:#555;">Invoice ini sah tanpa memerlukan cap/stempel apabila dicetak dari sistem.</p>` : `<p style="font-size:11.5px;color:#555;">*Dokumen ini belum berupa Invoice resmi - proses transaksi ke status Invoice terlebih dahulu di menu Part Direct Sales.</p>`}
+    <div class="print-sign">
+      <div class="box"><div class="line"></div>Kasir/Part Staff<br>(${esc(header.InvoicedBy||header.CreatedBy||'-')})</div>
+      <div class="box"><div class="line"></div>Customer</div>
+    </div>
+  `;
+  openPrintWindow(buildPrintDocument(isInvoice?'INVOICE':'NOTA PART DIRECT SALES', isInvoice?(header.InvoiceNumber||header.PDSID):header.PDSID, body, getPrintCss()));
 }
 
 /* ================= INVENTORY: PO CREATED ================= */
