@@ -485,6 +485,7 @@ const NAV = [
   ]},
   {group:'Reminder, Booking & Follow Up', items:[
     {id:'reminder', label:'Reminder Jatuh Tempo Service', icon:'warning'},
+    {id:'booking', label:'Booking Servis', icon:'card'},
     {id:'followup', label:'Follow Up After Service', icon:'customer'},
   ]},
   {group:'Purchasing Order', items:[
@@ -1005,6 +1006,7 @@ const views = {
   estimasi: renderEstimasi,
   pds: renderPDS,
   reminder: renderReminderDue,
+  booking: renderBooking,
   followup: renderFollowUp,
   'wo-order-query': renderOrderQuery,
   'wo-completed': ()=>renderWOStage('Completed'),
@@ -1155,8 +1157,19 @@ function renderGuide(){
     </div>
 
     <div class="panel">
-      <h3>3e. Follow Up After Service</h3>
-      <p style="font-size:13px;line-height:1.7;">Satu grup dengan Reminder di atas - untuk sekarang Booking di grup yang sama masih menyusul di pengembangan berikutnya.</p>
+      <h3>3e. Booking Servis</h3>
+      <p style="font-size:13px;line-height:1.7;">Bagian dari grup <b>"Reminder, Booking & Follow Up"</b> - janji temu servis, bisa dibuat manual (tombol "Buat Booking") ATAU otomatis dibukakan formnya saat CRO memilih hasil "Booking Dibuat" di layar Reminder (Customer/Kendaraan sudah otomatis terisi, tidak perlu cari ulang).</p>
+      <ul style="font-size:13px;line-height:1.9;padding-left:18px;margin:0;">
+        <li><b>Alur status</b>: Booked (baru dibuat) → Confirmed (dikonfirmasi CRO/SA) → Checked-in (customer benar-benar datang). Ada 2 cabang keluar: Cancelled (dibatalkan) / No Show (tidak datang tanpa kabar).</li>
+        <li><b>Check-in otomatis membuat Estimasi kosong</b> lewat modul Estimasi yang sudah ada - jadi begitu customer datang, SA tinggal cari nomor Estimasi tsb di menu Estimasi untuk isi part/jasa, tidak perlu input ulang Customer/Kendaraan dari nol.</li>
+        <li>Ada pengecekan bentrok jadwal sederhana: 1 Mekanik yang sama tidak boleh dibooking dobel di tanggal &amp; jam yang sama selama booking lain itu masih berstatus Booked/Confirmed.</li>
+        <li>Kolom "Sumber" menunjukkan apakah booking dibuat manual atau hasil tindak lanjut Reminder (menyimpan nomor Reminder asalnya untuk ditelusuri).</li>
+      </ul>
+    </div>
+
+    <div class="panel">
+      <h3>3f. Follow Up After Service</h3>
+      <p style="font-size:13px;line-height:1.7;">Satu grup dengan Reminder & Booking di atas - menutup siklus retensi pelanggan (sebelum servis: Reminder & Booking, sesudah servis: Follow Up ini).</p>
       <ul style="font-size:13px;line-height:1.9;padding-left:18px;margin:0;">
         <li>Setiap WO yang mencapai status <b>Vehicle Delivery</b> otomatis dibuatkan 1 baris Follow Up (Status: Belum Follow Up) - tidak perlu dibuat manual.</li>
         <li>CRO/SA membuka baris tsb, catat hasil hubungi customer: Puas / Kurang Puas / Ada Keluhan + catatan bebas → jadi Sudah Dihubungi. Kalau tidak bisa dihubungi, klik "Tidak Bisa Dihubungi" (bisa dicoba lagi kapan saja).</li>
@@ -1239,7 +1252,8 @@ Part Direct Sales
  \`- Part Direct Sales
 Reminder, Booking & Follow Up
  |- Reminder Jatuh Tempo Service
- \`- Follow Up After Service   (Booking menyusul)
+ |- Booking Servis
+ \`- Follow Up After Service
 Purchasing Order
  |- Pengajuan PO
  |- Approval PO
@@ -3477,7 +3491,21 @@ async function submitReminderLog(r){
     NamaCustomer: r.NamaCustomer, NoHP: r.NoHP, LastServiceDate: r.LastServiceDate, LastKM: r.LastKM, DueReason: r.DueReason,
     Status: status, SnoozeUntil: val('rem_snooze_date'), Catatan: val('rem_catatan'), ActorName: actor.name
   });
-  if(res.success){ toast('Hasil reminder tersimpan.'); closeDrawer(); renderReminderDue(); } else toast(res.message,true);
+  if(!res.success){ toast(res.message,true); return; }
+  toast('Hasil reminder tersimpan.');
+  renderReminderDue();
+  // Integrasi Reminder -> Booking: kalau CRO memilih hasil "Booking Dibuat", langsung GANTI ISI drawer
+  // yang sama ini jadi form Booking dengan Customer/Kendaraan sudah terisi (SourceReminderID ikut dibawa
+  // supaya tetap tertelusuri asalnya) - jadi CRO tidak perlu cari ulang customer yang sama di menu Booking.
+  // SENGAJA TIDAK memanggil closeDrawer() dulu di sini: closeDrawer() punya jeda 250ms sebelum benar-benar
+  // menyembunyikan overlay drawer-bg - kalau drawer baru (formBooking) dibuka SEBELUM jeda itu selesai,
+  // timeout closeDrawer() yang lama akan menyembunyikan overlay drawer yang baru saja dibuka. formBooking()
+  // sendiri memanggil openDrawer() yang aman dipakai untuk mengganti isi drawer yang sedang terbuka.
+  if(status==='Booking Dibuat'){
+    formBooking({ CustomerID:r.CustomerID, VehicleID:r.VehicleID, Keluhan:'Servis berkala (hasil tindak lanjut Reminder)', SourceReminderID: res.id || r.ReminderID || '' });
+  } else {
+    closeDrawer();
+  }
 }
 
 /* ================= FOLLOW UP AFTER SERVICE (grup "Reminder, Booking & Follow Up") =================
@@ -3554,6 +3582,165 @@ async function submitFollowUp(followUpId, status){
     ActorName: actor.name
   });
   if(res.success){ toast('Hasil follow up tersimpan.'); closeDrawer(); renderFollowUp(); } else toast(res.message,true);
+}
+
+/* ================= BOOKING SERVIS (grup "Reminder, Booking & Follow Up") =================
+   Bisa dibuat manual dari sini (tombol "Buat Booking"), ATAU otomatis dibukakan formnya oleh
+   submitReminderLog() saat CRO memilih hasil "Booking Dibuat" di layar Reminder - SourceReminderID
+   ikut terbawa supaya booking ini tetap tertelusuri lahir dari tindak lanjut reminder yang mana.
+   Alur status: Booked -> Confirmed -> Checked-in (TERMINAL - backend otomatis membuat shell Estimasi
+   kosong lewat checkinBooking(), jadi begitu customer datang, SA tinggal cari nomor Estimasi itu di
+   menu Estimasi utk isi part/jasa - tidak perlu input ulang Customer/Kendaraan dari nol). Cabang keluar:
+   Cancelled / No Show. */
+const BOOKING_STATUS_BADGE = {'Booked':'s4','Confirmed':'s2','Checked-in':'good','Cancelled':'critical','No Show':'critical'};
+async function renderBooking(){
+  setMain(skeletonRows(4));
+  const res = await apiGet('listBooking');
+  const data = (res.data||[]).sort((a,b)=> new Date(b.TglBooking+' '+(b.JamBooking||'00:00')) - new Date(a.TglBooking+' '+(a.JamBooking||'00:00')));
+  window['__rawdata_booking'] = data;
+  const aktif = data.filter(b=>['Booked','Confirmed'].indexOf(b.Status)!==-1).length;
+  setMain(`
+    <div class="page-head">
+      <div><h2>Booking Servis</h2><p>Janji temu servis - dibuat manual atau hasil tindak lanjut Reminder Jatuh Tempo Service (${data.length} total, ${aktif} masih aktif)</p></div>
+      <button class="btn" onclick="formBooking()">${icon('plus')} Buat Booking</button>
+    </div>
+    ${filterBarHtml('booking', [
+      {key:'Status', label:'Status', options:['Booked','Confirmed','Checked-in','Cancelled','No Show']}
+    ], 'TglBooking')}
+    <div class="panel">${dataTable({
+      id:'booking', rows:data, searchKeys:['BookingID','NamaCustomer','NoPolisi','Mekanik'],
+      columns:[
+        {key:'BookingID', label:'No. Booking'},
+        {key:'TglBooking', label:'Tanggal', render:b=>fmtDate(b.TglBooking)},
+        {key:'JamBooking', label:'Jam', render:b=>esc(b.JamBooking||'-')},
+        {key:'NamaCustomer', label:'Customer'},
+        {key:'NoPolisi', label:'No Polisi'},
+        {key:'Mekanik', label:'Mekanik', render:b=>esc(b.Mekanik||'-')},
+        {key:'SourceReminderID', label:'Sumber', render:b=>b.SourceReminderID?'Reminder':'Manual'},
+        {key:'Status', label:'Status', render:b=>statusBadge(b.Status, BOOKING_STATUS_BADGE)}
+      ],
+      rowActions:b=>bookingRowActions(b)
+    })}</div>
+  `);
+  initTable('booking');
+}
+function bookingRowActions(b){
+  const btns = [`<button class="btn ghost sm" onclick='viewBooking(${JSON.stringify(b)})'>Detail</button>`];
+  if(b.Status==='Booked') btns.push(`<button class="btn accent sm" onclick="confirmBookingUI('${b.BookingID}')">Konfirmasi</button>`);
+  if(b.Status==='Confirmed') btns.push(`<button class="btn good sm" onclick="checkinBookingUI('${b.BookingID}')">Check-in</button>`, `<button class="btn secondary sm" onclick="noShowBookingUI('${b.BookingID}')">No Show</button>`);
+  if(['Booked','Confirmed'].indexOf(b.Status)!==-1) btns.push(`<button class="btn critical sm" onclick="cancelBookingUI('${b.BookingID}')">Batalkan</button>`);
+  return btns.join('');
+}
+function viewBooking(b){
+  openDrawer(`
+    <div class="drawer-head"><h3>Booking ${esc(b.BookingID)}</h3><button class="drawer-close" onclick="closeDrawer()">&times;</button></div>
+    <div class="drawer-body">
+      <div class="grid3">
+        <div class="kv"><span>Tanggal &amp; Jam</span><b>${fmtDate(b.TglBooking)} ${esc(b.JamBooking||'-')}</b></div>
+        <div class="kv"><span>Customer</span><b>${esc(b.NamaCustomer)}</b></div>
+        <div class="kv"><span>No HP</span><b>${esc(b.NoHP||'-')}</b></div>
+        <div class="kv"><span>No Polisi</span><b>${esc(b.NoPolisi)}</b></div>
+        <div class="kv"><span>Mekanik</span><b>${esc(b.Mekanik||'-')}</b></div>
+        <div class="kv"><span>Status</span><b>${statusBadge(b.Status, BOOKING_STATUS_BADGE)}</b></div>
+      </div>
+      <p class="sub" style="margin:10px 0;"><b>Keluhan:</b> ${esc(b.Keluhan||'-')}</p>
+      ${b.Catatan?`<p class="sub"><b>Catatan:</b> ${esc(b.Catatan)}</p>`:''}
+      ${b.SourceReminderID?`<p class="sub">Dibuat dari tindak lanjut Reminder <b>${esc(b.SourceReminderID)}</b>.</p>`:''}
+      ${b.ConvertedEstimasiID?`<p class="sub" style="color:var(--good,#0a8f0a);">✓ Sudah Check-in, otomatis jadi Estimasi <b>${esc(b.ConvertedEstimasiID)}</b> - cari nomor ini di menu Estimasi utk isi part/jasa.</p>`:''}
+      ${b.CancelReason?`<p class="sub">Alasan batal: ${esc(b.CancelReason)}</p>`:''}
+      <p class="sub">Dibuat oleh ${esc(b.CreatedBy||'-')} pada ${fmtDate(b.CreatedAt)}.</p>
+    </div>
+    <div class="drawer-foot"><button class="btn secondary" onclick="closeDrawer()">Tutup</button></div>
+  `);
+}
+async function confirmBookingUI(id){
+  const actor = getActor();
+  const res = await apiPost('confirmBooking', {BookingID:id, ActorName:actor.name});
+  if(res.success){ toast('Booking dikonfirmasi.'); closeDrawer(); renderBooking(); } else toast(res.message,true);
+}
+async function checkinBookingUI(id){
+  if(!confirm('Check-in booking ini? Sistem akan otomatis membuat Estimasi kosong untuk diisi SA.')) return;
+  const actor = getActor();
+  const res = await apiPost('checkinBooking', {BookingID:id, ActorName:actor.name});
+  if(res.success){ toast('Check-in berhasil, Estimasi '+res.estimasiId+' dibuat.'); closeDrawer(); renderBooking(); } else toast(res.message,true);
+}
+async function noShowBookingUI(id){
+  if(!confirm('Tandai booking ini sebagai No Show?')) return;
+  const actor = getActor();
+  const res = await apiPost('markNoShowBooking', {BookingID:id, ActorName:actor.name});
+  if(res.success){ toast('Ditandai No Show.'); closeDrawer(); renderBooking(); } else toast(res.message,true);
+}
+async function cancelBookingUI(id){
+  const reason = prompt('Alasan pembatalan (opsional):')||'';
+  const actor = getActor();
+  const res = await apiPost('cancelBooking', {BookingID:id, ActorName:actor.name, CancelReason:reason});
+  if(res.success){ toast('Booking dibatalkan.'); closeDrawer(); renderBooking(); } else toast(res.message,true);
+}
+// prefill (opsional): {CustomerID, VehicleID, Keluhan, SourceReminderID} - dipakai saat form ini dibuka
+// dari layar Reminder (lihat submitReminderLog()) supaya Customer/Kendaraan sudah otomatis terisi.
+async function formBooking(prefill){
+  prefill = prefill || {};
+  const [boot, ures] = await Promise.all([getWOFormMasterData(), apiGet('listUsers')]);
+  window.__customers = boot.customers; window.__vehicles = boot.vehicles;
+  const custMap = {}; boot.customers.forEach(c=>custMap[c.CustomerID]=c);
+  const vehicleChoices = boot.vehicles.map(v=>({...v, custName:(custMap[v.CustomerID]||{}).Nama||'', custHP:(custMap[v.CustomerID]||{}).NoHP||''}));
+  const mekaniks = (ures.data||[]).filter(u=>u.Role==='Mekanik' && !(u.Active===false||u.Active==='FALSE'));
+  const prefVeh = prefill.VehicleID ? vehicleChoices.find(v=>String(v.VehicleID)===String(prefill.VehicleID)) : null;
+  openDrawer(`
+    <div class="drawer-head"><h3>Buat Booking Servis</h3><button class="drawer-close" onclick="closeDrawer()">&times;</button></div>
+    <div class="drawer-body">
+      ${prefill.SourceReminderID?`<div class="warn-box" style="background:var(--surface-2);">Booking ini dibuat dari tindak lanjut Reminder <b>${esc(prefill.SourceReminderID)}</b>.</div>`:''}
+      <label>Cari Customer / No Polisi / No Rangka (VIN)</label>
+      ${comboSearchHtml('bk_veh_combo', 'Ketik nama, No HP, No Polisi, atau No Rangka...')}
+      <input type="hidden" id="bk_cust_id" value="${esc(prefill.CustomerID||'')}">
+      <input type="hidden" id="bk_source_reminder" value="${esc(prefill.SourceReminderID||'')}">
+      <div class="grid3">
+        <div><label>Tanggal Booking</label><input type="date" id="bk_date" value="${esc(prefill.TglBooking||'')}"></div>
+        <div><label>Jam Booking</label><input type="time" id="bk_time" value="${esc(prefill.JamBooking||'')}"></div>
+        <div><label>Mekanik (opsional)</label>
+          <select id="bk_mekanik">
+            <option value="">- Belum ditentukan -</option>
+            ${mekaniks.map(m=>`<option value="${esc(m.Nama)}">${esc(m.Nama)}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <label>Keluhan / Kebutuhan Servis</label>
+      <textarea id="bk_keluhan">${esc(prefill.Keluhan||'')}</textarea>
+      <label>Catatan (opsional)</label>
+      <textarea id="bk_catatan"></textarea>
+    </div>
+    <div class="drawer-foot">
+      <button class="btn secondary" onclick="closeDrawer()">Batal</button>
+      <button class="btn good" onclick="submitBooking()">Simpan Booking</button>
+    </div>
+  `);
+  attachComboSearch('bk_veh_combo', vehicleChoices, {
+    getLabel:v=>`${v.NoPolisi} — ${v.custName||'(tanpa nama)'}`,
+    getSub:v=>`${v.Brand||''} ${v.Model||''} · Rangka: ${v.NoRangka||'-'}${v.custHP?' · '+v.custHP:''}`,
+    getValue:v=>v.VehicleID,
+    searchText:v=>[v.NoPolisi,v.NoRangka,v.NoMesin,v.custName,v.custHP].join(' '),
+    onSelect:v=>{ document.getElementById('bk_cust_id').value = v.CustomerID; }
+  });
+  if(prefVeh){
+    setFieldValue('bk_veh_combo', prefVeh.VehicleID);
+    const vehInput = document.getElementById('bk_veh_combo_input');
+    if(vehInput) vehInput.value = prefVeh.NoPolisi + ' — ' + (prefVeh.custName||'(tanpa nama)');
+  }
+}
+async function submitBooking(){
+  const custId = val('bk_cust_id');
+  const vehId = val('bk_veh_combo');
+  const date = val('bk_date'); const time = val('bk_time');
+  if(!custId || !vehId){ toast('Pilih dulu Customer / Kendaraan.', true); return; }
+  if(!date){ toast('Isi dulu tanggal booking.', true); return; }
+  if(!time){ toast('Isi dulu jam booking.', true); return; }
+  const actor = getActor();
+  const res = await apiPost('createBooking', {
+    CustomerID: custId, VehicleID: vehId, TglBooking: date, JamBooking: time,
+    Mekanik: val('bk_mekanik'), Keluhan: val('bk_keluhan'), Catatan: val('bk_catatan'),
+    SourceReminderID: val('bk_source_reminder'), ActorName: actor.name
+  });
+  if(res.success){ toast('Booking '+res.id+' berhasil dibuat.'); closeDrawer(); refreshCurrentView(); } else toast(res.message,true);
 }
 
 /* ================= INVENTORY: PO CREATED ================= */
