@@ -82,7 +82,8 @@ body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;backgrou
 .topbar h2{margin:0;font-size:18px;font-weight:700;}
 .searchbox{margin-left:auto;display:flex;align-items:center;gap:8px;background:var(--surface-2);
   border:1px solid var(--border);border-radius:10px;padding:7px 12px;width:260px;}
-.searchbox input{background:none;border:none;outline:none;color:var(--ink);font-size:13px;width:100%;}
+.searchbox input{background:none;border:none;outline:none;color:var(--ink);font-size:13px;width:100%;
+  padding:0;margin-bottom:0;border-radius:0;}
 .searchbox svg{width:15px;height:15px;color:var(--ink-muted);flex-shrink:0;}
 .bell{position:relative;width:34px;height:34px;border-radius:10px;background:var(--surface-2);
   border:1px solid var(--border);display:flex;align-items:center;justify-content:center;color:var(--ink-2);cursor:pointer;}
@@ -720,16 +721,26 @@ function emptyState(msg){ return `<div class="empty-state">${icon('warning')}<di
 /* ================= FILTER BAR (date range + dropdown filters), dipakai di header hampir semua menu list ================= */
 // dateField: nama kolom tanggal pada baris data yang dipakai utk filter dari/ke (default 'CreatedAt').
 // extra: [{key, label, options:[...]}] -> dropdown filter tambahan (exact match).
-function filterBarHtml(tableId, extra, dateField, handlers){
+// searchCfg: {keys:[...], placeholder} -> gabungkan kotak pencarian teks bebas KE DALAM filter bar ini,
+// supaya tidak ada 2 kotak pencarian terpisah (filter bar + kotak cari bawaan tabel) utk 1 daftar yang sama -
+// dipasangkan dgn dataTable({..., showSearch:false}) di pemanggilnya.
+function filterBarHtml(tableId, extra, dateField, handlers, searchCfg){
   extra = extra || [];
   handlers = handlers || {};
   const applyFn = handlers.apply || `applyFilterBar('${tableId}')`;
   const resetFn = handlers.reset || `resetFilterBar('${tableId}')`;
   window['__fltdatefield_'+tableId] = dateField || 'CreatedAt';
   window['__fltextra_'+tableId] = extra.map(f=>f.key);
+  window['__fltsearchkeys_'+tableId] = searchCfg ? searchCfg.keys : null;
   return `
     <div class="panel" style="margin-bottom:12px;">
       <div class="row-line" style="flex-wrap:wrap;gap:10px;align-items:flex-end;">
+        ${searchCfg ? `<div style="flex:1 1 200px;max-width:260px;"><label style="font-size:11px;display:block;">Cari</label>
+          <div class="searchbox" style="width:100%;margin-left:0;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+            <input id="flt_${tableId}_q" placeholder="${esc(searchCfg.placeholder||'Cari...')}" oninput="${applyFn}">
+          </div>
+        </div>` : ''}
         <div><label style="font-size:11px;display:block;">Dari Tanggal</label><input type="date" id="flt_${tableId}_from" style="width:150px;"></div>
         <div><label style="font-size:11px;display:block;">Ke Tanggal</label><input type="date" id="flt_${tableId}_to" style="width:150px;"></div>
         ${extra.map(f=>`<div><label style="font-size:11px;display:block;">${esc(f.label)}</label>
@@ -752,6 +763,11 @@ function applyFilterBar(tableId, onFiltered){
     const v = val('flt_'+tableId+'_'+k);
     if(v) filtered = filtered.filter(r=>String(r[k]||'')===v);
   });
+  const searchKeys = window['__fltsearchkeys_'+tableId];
+  if(searchKeys){
+    const q = (val('flt_'+tableId+'_q')||'').toLowerCase().trim();
+    if(q) filtered = filtered.filter(r=>searchKeys.some(k=>String(r[k]||'').toLowerCase().includes(q)));
+  }
   if(onFiltered) onFiltered(filtered);
   else if(window['__tbl_'+tableId]) window['__tbl_'+tableId].refresh(filtered);
   return filtered;
@@ -760,6 +776,7 @@ function resetFilterBar(tableId, onFiltered){
   setFieldValue('flt_'+tableId+'_from','');
   setFieldValue('flt_'+tableId+'_to','');
   (window['__fltextra_'+tableId]||[]).forEach(k=>setFieldValue('flt_'+tableId+'_'+k,''));
+  if(window['__fltsearchkeys_'+tableId]) setFieldValue('flt_'+tableId+'_q','');
   const raw = window['__rawdata_'+tableId] || [];
   if(onFiltered) onFiltered(raw);
   else if(window['__tbl_'+tableId]) window['__tbl_'+tableId].refresh(raw);
@@ -789,10 +806,10 @@ function dataTable(opts){
     if(!el) return;
     el.innerHTML = `
       <div class="flex-between" style="margin-bottom:12px;">
-        <div class="searchbox" style="width:230px;margin-left:0;">
+        ${opts.showSearch===false ? '<div></div>' : `<div class="searchbox" style="width:220px;margin-left:0;">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
           <input placeholder="Cari..." value="${esc(state.q)}" oninput="window.__tbl_${opts.id}.search(this.value)">
-        </div>
+        </div>`}
         <span class="muted" style="font-size:12px;">${filtered.length} data</span>
       </div>
       <div style="overflow-x:auto;">
@@ -1714,9 +1731,9 @@ async function renderInventoryMaster(){
     ${!canEdit ? `<div class="warn-box" style="margin-bottom:12px;">Inventory Master hanya bisa diubah oleh akun <b>Super Admin</b>. Anda login sebagai <b>${esc(actor.role)}</b> - tampilan di bawah hanya untuk dilihat (read-only).</div>` : ''}
     ${filterBarHtml('invmaster', [
       {key:'Status', label:'Status', options:['Active','Inactive']}
-    ], 'UpdatedAt')}
+    ], 'UpdatedAt', null, {keys:['PartNumber','PartName'], placeholder:'Cari No. Part / Nama Part...'})}
     <div class="panel">${dataTable({
-      id:'invmaster', rows:data, searchKeys:['PartNumber','PartName'],
+      id:'invmaster', rows:data, searchKeys:['PartNumber','PartName'], showSearch:false,
       columns:[
         {key:'PartNumber', label:'Parts No.', render:p=>`<span class="link-id" onclick='viewKartuStok(${JSON.stringify(p.PartNumber)})' title="Lihat Kartu Stok">${esc(p.PartNumber)}</span>`},
         {key:'PartName', label:'Parts Name'},
@@ -2169,7 +2186,7 @@ function drawWorkOrderView(){
       {key:'JenisWO', label:'Jenis WO', options:[...new Set(data.map(w=>w.JenisWO).filter(Boolean))]},
       {key:'Mekanik', label:'Mekanik', options:[...new Set(data.map(w=>w.Mekanik).filter(Boolean))]},
       {key:'Status', label:'Status', options:WO_FLOW}
-    ], 'TglWO', {apply:'applyWOFilter()', reset:'resetWOFilter()'})}
+    ], 'TglWO', {apply:'applyWOFilter()', reset:'resetWOFilter()'}, {keys:['WOID','NamaCustomer','NoPolisi'], placeholder:'Cari No. WO / Customer / No Polisi...'})}
     <div id="woBody"></div>
   `);
   window['__rawdata_wo'] = data;
@@ -2225,7 +2242,7 @@ function jumpToWOStatus(status){
 }
 function drawWOList(data){
   document.getElementById('woBody').innerHTML = `<div class="panel">${dataTable({
-    id:'wolist', rows:data, searchKeys:['WOID','NamaCustomer','NoPolisi'],
+    id:'wolist', rows:data, searchKeys:['WOID','NamaCustomer','NoPolisi'], showSearch:false,
     columns:[
       {key:'WOID', label:'WO ID', render:w=>`<span class="link-id" onclick="viewWorkOrder('${w.WOID}')">${esc(w.WOID)}</span>`},
       {key:'TglWO', label:'Tgl', render:w=>fmtDate(w.TglWO)},
@@ -2865,9 +2882,9 @@ async function renderOrderQuery(){
       {key:'Status', label:'Order Status', options:ORDER_QUERY_STATUSES},
       {key:'JenisWO', label:'Jenis WO', options:[...new Set(data.map(w=>w.JenisWO).filter(Boolean))]},
       {key:'Mekanik', label:'Mekanik', options:[...new Set(data.map(w=>w.Mekanik).filter(Boolean))]}
-    ], 'TglWO')}
+    ], 'TglWO', null, {keys:['WOID','NamaCustomer','NoPolisi','Mekanik'], placeholder:'Cari No. WO / Customer / No Polisi / Mekanik...'})}
     <div class="panel">${dataTable({
-      id:'orderquery', rows:data, searchKeys:['WOID','NamaCustomer','NoPolisi','Mekanik'],
+      id:'orderquery', rows:data, searchKeys:['WOID','NamaCustomer','NoPolisi','Mekanik'], showSearch:false,
       columns:[
         {key:'WOID', label:'WO ID', render:w=>`<span class="link-id" onclick="viewWorkOrder('${w.WOID}')">${esc(w.WOID)}</span>`},
         {key:'TglWO', label:'Tgl', render:w=>fmtDate(w.TglWO)},
@@ -2893,9 +2910,9 @@ async function renderWOStage(status){
     ${filterBarHtml(tblId, [
       {key:'JenisWO', label:'Jenis WO', options:[...new Set(data.map(w=>w.JenisWO).filter(Boolean))]},
       {key:'Mekanik', label:'Mekanik', options:[...new Set(data.map(w=>w.Mekanik).filter(Boolean))]}
-    ], 'TglWO')}
+    ], 'TglWO', null, {keys:['WOID','NamaCustomer','NoPolisi','Mekanik'], placeholder:'Cari No. WO / Customer / No Polisi / Mekanik...'})}
     <div class="panel">${dataTable({
-      id:tblId, rows:data, searchKeys:['WOID','NamaCustomer','NoPolisi','Mekanik'],
+      id:tblId, rows:data, searchKeys:['WOID','NamaCustomer','NoPolisi','Mekanik'], showSearch:false,
       columns:[
         {key:'WOID', label:'WO ID', render:w=>`<span class="link-id" onclick="viewWorkOrder('${w.WOID}')">${esc(w.WOID)}</span>`},
         {key:'TglWO', label:'Tgl', render:w=>fmtDate(w.TglWO)},
@@ -3148,9 +3165,9 @@ async function renderEstimasi(){
     ${filterBarHtml('estimasi', [
       {key:'Status', label:'Status', options:['Aktif','Dikonversi','Dibatalkan']},
       {key:'JenisWO', label:'Jenis', options:[...new Set(data.map(w=>w.JenisWO).filter(Boolean))]}
-    ], 'TglEstimasi')}
+    ], 'TglEstimasi', null, {keys:['EstimasiID','NamaCustomer','NoPolisi'], placeholder:'Cari No. Estimasi / Customer / No Polisi...'})}
     <div class="panel">${dataTable({
-      id:'estimasi', rows:data, searchKeys:['EstimasiID','NamaCustomer','NoPolisi'],
+      id:'estimasi', rows:data, searchKeys:['EstimasiID','NamaCustomer','NoPolisi'], showSearch:false,
       columns:[
         {key:'EstimasiID', label:'No. Estimasi', render:w=>`<span class="link-id" onclick="viewEstimasi('${w.EstimasiID}')">${esc(w.EstimasiID)}</span>`},
         {key:'TglEstimasi', label:'Tgl', render:w=>fmtDate(w.TglEstimasi)},
@@ -3403,9 +3420,9 @@ async function renderPDS(){
     </div>
     ${filterBarHtml('pds', [
       {key:'Status', label:'Status', options:['New','Invoice','Cancelled']}
-    ], 'TglPDS')}
+    ], 'TglPDS', null, {keys:['PDSID','NamaCustomer','InvoiceNumber'], placeholder:'Cari No. Transaksi / Customer / No. Invoice...'})}
     <div class="panel">${dataTable({
-      id:'pds', rows:data, searchKeys:['PDSID','NamaCustomer','InvoiceNumber'],
+      id:'pds', rows:data, searchKeys:['PDSID','NamaCustomer','InvoiceNumber'], showSearch:false,
       columns:[
         {key:'PDSID', label:'No. Transaksi', render:w=>`<span class="link-id" onclick="viewPDS('${w.PDSID}')">${esc(w.PDSID)}</span>`},
         {key:'TglPDS', label:'Tgl', render:w=>fmtDate(w.TglPDS)},
@@ -3741,9 +3758,9 @@ async function renderFollowUp(){
     </div>
     ${filterBarHtml('followup', [
       {key:'Status', label:'Status', options:['Belum Follow Up','Sudah Dihubungi','Tidak Bisa Dihubungi']}
-    ], 'TglVehicleDelivery')}
+    ], 'TglVehicleDelivery', null, {keys:['WOID','NamaCustomer','NoPolisi','NoHP'], placeholder:'Cari No. WO / Customer / No Polisi / No HP...'})}
     <div class="panel">${dataTable({
-      id:'followup', rows:data, searchKeys:['WOID','NamaCustomer','NoPolisi','NoHP'],
+      id:'followup', rows:data, searchKeys:['WOID','NamaCustomer','NoPolisi','NoHP'], showSearch:false,
       columns:[
         {key:'WOID', label:'No. WO', render:f=>`<span class="link-id" onclick="viewWorkOrder('${f.WOID}')">${esc(f.WOID)}</span>`},
         {key:'TglVehicleDelivery', label:'Tgl Selesai', render:f=>fmtDate(f.TglVehicleDelivery)},
@@ -3832,9 +3849,9 @@ async function renderBooking(){
     </div>
     ${filterBarHtml('booking', [
       {key:'Status', label:'Status', options:['Booked','Confirmed','Checked-in','Cancelled','No Show']}
-    ], 'TglBooking')}
+    ], 'TglBooking', null, {keys:['BookingID','NamaCustomer','NoPolisi','Mekanik'], placeholder:'Cari No. Booking / Customer / No Polisi / Mekanik...'})}
     <div class="panel">${dataTable({
-      id:'booking', rows:data, searchKeys:['BookingID','NamaCustomer','NoPolisi','Mekanik'],
+      id:'booking', rows:data, searchKeys:['BookingID','NamaCustomer','NoPolisi','Mekanik'], showSearch:false,
       columns:[
         {key:'BookingID', label:'No. Booking', render:b=>`<span class="link-id" onclick='viewBooking(${JSON.stringify(b)})'>${esc(b.BookingID)}</span>`},
         {key:'TglBooking', label:'Tanggal', render:b=>fmtDate(b.TglBooking)},
@@ -3986,9 +4003,9 @@ async function renderPOCreated(){
     ${filterBarHtml('po', [
       {key:'Status', label:'Status', options:[...new Set(data.map(p=>p.Status).filter(Boolean))]},
       {key:'Supplier', label:'Supplier', options:[...new Set(data.map(p=>p.Supplier).filter(Boolean))]}
-    ], 'TglPO')}
+    ], 'TglPO', null, {keys:['PONumber','Supplier'], placeholder:'Cari No. PO / Supplier...'})}
     <div class="panel">${dataTable({
-      id:'po', rows:data, searchKeys:['PONumber','Supplier'],
+      id:'po', rows:data, searchKeys:['PONumber','Supplier'], showSearch:false,
       columns:[
         {key:'PONumber', label:'PO Number', render:p=>`<span class="link-id" onclick="viewPO('${p.PONumber}')">${esc(p.PONumber)}</span>`},
         {key:'TglPO', label:'Tgl', render:p=>fmtDate(p.TglPO)},
@@ -4252,9 +4269,9 @@ async function renderPenerimaan(){
       <button class="btn" onclick="formPenerimaan()" ${readyPO.length===0?'disabled':''}>${icon('plus')} Buat Penerimaan</button></div>
     ${filterBarHtml('gr', [
       {key:'Status', label:'Status', options:[...new Set(grData.map(g=>g.Status).filter(Boolean))]}
-    ], 'TglTerima')}
+    ], 'TglTerima', null, {keys:['GRNumber','PONumber'], placeholder:'Cari No. GR / No. PO...'})}
     <div class="panel">${dataTable({
-      id:'gr', rows:grData, searchKeys:['GRNumber','PONumber'],
+      id:'gr', rows:grData, searchKeys:['GRNumber','PONumber'], showSearch:false,
       columns:[
         {key:'GRNumber', label:'GR Number'}, {key:'PONumber', label:'PO Number'},
         {key:'TglTerima', label:'Tgl Terima', render:g=>fmtDate(g.TglTerima)},
@@ -4400,9 +4417,9 @@ async function renderHistory(tipe){
     <div class="page-head"><div><h2>${tipe} History</h2><p>Riwayat lengkap transaksi ${tipe.toLowerCase()} (${data.length} transaksi)</p></div></div>
     ${filterBarHtml('hist'+tipe, [
       {key:'Sumber', label:'Sumber', options:[...new Set(data.map(r=>r.Sumber).filter(Boolean))]}
-    ], 'Tgl')}
+    ], 'Tgl', null, {keys:['PartNumber','PartName','Sumber','Reference'], placeholder:'Cari No. Part / Nama Part / Sumber...'})}
     <div class="panel">${dataTable({
-      id:'hist'+tipe, rows:data, searchKeys:['PartNumber','PartName','Sumber','Reference'],
+      id:'hist'+tipe, rows:data, searchKeys:['PartNumber','PartName','Sumber','Reference'], showSearch:false,
       columns:[
         {key:'Tgl', label:'Tgl', render:r=>fmtDate(r.Tgl)},
         {key:'PartName', label:'Part', render:r=>`${esc(r.PartNumber)} - ${esc(r.PartName)}`},
@@ -4546,9 +4563,9 @@ async function renderPartLoss(){
     ${filterBarHtml('partloss', [
       {key:'Tipe', label:'Tipe', options:['Selisih Lebih','Selisih Kurang (Loss)']},
       {key:'Status', label:'Status', options:['Pending Approval','Approved','Rejected']}
-    ], 'CreatedAt')}
+    ], 'CreatedAt', null, {keys:['PartNumber','PartName','OpnameID'], placeholder:'Cari No. Part / Nama Part / No. Opname...'})}
     <div class="panel">${dataTable({
-      id:'partloss', rows:data, searchKeys:['PartNumber','PartName','OpnameID'],
+      id:'partloss', rows:data, searchKeys:['PartNumber','PartName','OpnameID'], showSearch:false,
       columns:[
         {key:'CreatedAt', label:'Tgl', render:r=>fmtDate(r.CreatedAt)},
         {key:'OpnameID', label:'Opname', render:r=>`<span class="link-id" onclick="viewOpname('${r.OpnameID}')">${esc(r.OpnameID)}</span>`},
