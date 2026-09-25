@@ -285,11 +285,33 @@ textarea{resize:vertical;min-height:60px;}
   font-weight:700;cursor:pointer;}
 .view-toggle button.active{background:var(--surface-3);color:var(--ink);}
 
-.activity-item{display:flex;gap:11px;padding:10px 0;border-bottom:1px dashed var(--border);}
-.activity-item:last-child{border-bottom:none;}
-.activity-item .aic{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+/* Donut + breakdown list (Status PO, Komposisi Pekerjaan) - donut kecil di kiri, rincian per status
+   mengisi ruang kanan proporsional dgn mini progress bar, supaya tidak ada area kosong besar
+   di sisi panel walau kategori yang punya data cuma sedikit. */
+.donut-flex{display:flex;align-items:center;gap:26px;flex-wrap:wrap;width:100%;}
+.donut-flex .donut-svg{flex-shrink:0;}
+.breakdown-list{display:flex;flex-direction:column;gap:13px;flex:1;min-width:190px;}
+.breakdown-row .brk-top{display:flex;align-items:center;gap:8px;margin-bottom:5px;}
+.breakdown-row .brk-sw{width:9px;height:9px;border-radius:3px;flex-shrink:0;}
+.breakdown-row .brk-lbl{font-size:12.5px;color:var(--ink-2);font-weight:600;flex:1;}
+.breakdown-row .brk-cnt{font-size:13px;color:var(--ink);font-weight:800;}
+.breakdown-row .brk-pct{font-size:11px;color:var(--ink-muted);font-weight:600;min-width:36px;text-align:right;}
+.breakdown-bar{height:6px;border-radius:5px;background:var(--surface-3);overflow:hidden;}
+.breakdown-fill{height:100%;border-radius:5px;}
+
+/* Aktivitas Terbaru - gaya timeline modern: garis penghubung vertikal antar ikon, dikelompokkan per hari */
+.activity-feed{position:relative;}
+.activity-daygroup + .activity-daygroup{margin-top:4px;}
+.activity-daylabel{font-size:11px;font-weight:800;color:var(--ink-muted);text-transform:uppercase;letter-spacing:.04em;
+  padding:12px 0 8px;}
+.activity-daygroup:first-child .activity-daylabel{padding-top:0;}
+.activity-item{display:flex;gap:12px;padding:9px 0;position:relative;}
+.activity-item::before{content:'';position:absolute;left:14.5px;top:32px;bottom:-9px;width:1.5px;background:var(--border-strong);}
+.activity-item:last-child::before{display:none;}
+.activity-item .aic{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;flex-shrink:0;
+  position:relative;z-index:1;box-shadow:0 0 0 3px var(--surface);}
 .activity-item .aic svg{width:14px;height:14px;}
-.activity-item .txt{font-size:12.5px;}
+.activity-item .txt{font-size:12.5px;font-weight:600;color:var(--ink);}
 .activity-item .time{font-size:10.5px;color:var(--ink-muted);margin-top:2px;}
 
 @media(max-width:820px){
@@ -992,6 +1014,42 @@ function attachDonutChart(containerEl, chart){
 function legendFor(items){
   return `<div class="chart-legend">${items.map(it=>`<div class="item"><span class="sw" style="background:var(--${it.colorVar})"></span>${esc(it.label)} (${it.value})</div>`).join('')}</div>`;
 }
+// Rincian per-kategori (dipakai berdampingan dgn donut, bukan legend biasa) - tiap baris berisi nama,
+// jumlah, persentase, dan mini progress bar proporsional, supaya ruang panel terisi rapi & informatif
+// walau kategori yang ada datanya cuma sedikit (mis. Status PO baru punya 1 status terisi).
+function donutBreakdownHtml(items){
+  const total = items.reduce((s,i)=>s+i.value,0) || 1;
+  return `<div class="breakdown-list">${items.map(it=>{
+    const pct = (it.value/total*100);
+    return `<div class="breakdown-row">
+      <div class="brk-top">
+        <span class="brk-sw" style="background:var(--${it.colorVar})"></span>
+        <span class="brk-lbl">${esc(it.label)}</span>
+        <span class="brk-cnt">${it.value}</span>
+        <span class="brk-pct">${pct.toFixed(0)}%</span>
+      </div>
+      <div class="breakdown-bar"><div class="breakdown-fill" style="width:${pct}%;background:var(--${it.colorVar})"></div></div>
+    </div>`;
+  }).join('')}</div>`;
+}
+// Kelompokkan aktivitas terbaru per hari (Hari Ini / Kemarin / tanggal) supaya feed terasa terstruktur,
+// bukan daftar polos - dipakai renderDashboard() utk panel "Aktivitas Terbaru".
+function groupActivityByDay(list){
+  const today = new Date(); today.setHours(0,0,0,0);
+  const yest = new Date(today.getTime()-86400000);
+  const groups = [];
+  const byKey = {};
+  list.forEach(a=>{
+    const d = new Date(a.tgl); const dKey = new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime();
+    let label;
+    if(dKey===today.getTime()) label = 'Hari Ini';
+    else if(dKey===yest.getTime()) label = 'Kemarin';
+    else label = fmtDate(a.tgl);
+    if(!byKey[label]){ byKey[label] = { label, items: [] }; groups.push(byKey[label]); }
+    byKey[label].items.push(a);
+  });
+  return groups;
+}
 
 /* ================= VIEW REGISTRY ================= */
 const views = {
@@ -1343,7 +1401,7 @@ async function renderDashboard(dashPeriod, scorePeriod){
       <div class="panel">
         <h3>Komposisi Pekerjaan</h3>
         <p class="sub">General Repair vs Body Repair - dari unit yang sedang WIP saat ini</p>
-        <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;" id="komposisiWrap">
+        <div class="donut-flex" id="komposisiWrap">
           ${(komposisiItems[0].value+komposisiItems[1].value)>0 ? '' : emptyState('Belum ada unit WIP saat ini')}
         </div>
       </div>
@@ -1399,21 +1457,27 @@ async function renderDashboard(dashPeriod, scorePeriod){
     <div class="grid2">
       <div class="panel">
         <h3>Status Purchase Order</h3>
-        <p class="sub">Proporsi PO berdasarkan status</p>
-        <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;" id="donutWrap">
+        <p class="sub">${poEntries.length} status &middot; ${poEntries.reduce((s,[,v])=>s+v,0)} PO total</p>
+        <div class="donut-flex" id="donutWrap">
           ${poEntries.length ? '' : emptyState('Belum ada data PO')}
         </div>
       </div>
       <div class="panel">
         <h3>Aktivitas Terbaru</h3>
         <p class="sub">Work order & mutasi stok terkini</p>
-        ${(d.recentActivity||[]).length===0 ? emptyState('Belum ada aktivitas') : d.recentActivity.map(a=>`
-          <div class="activity-item">
-            <div class="aic" style="background:${a.type==='Inbound'?'rgba(12,163,12,.16)':a.type==='Outbound'?'rgba(208,59,59,.16)':'rgba(57,135,229,.16)'};color:${a.type==='Inbound'?'var(--good)':a.type==='Outbound'?'var(--critical)':'var(--s1)'}">
-              ${icon(a.type==='Inbound'?'inbound':a.type==='Outbound'?'outbound':'wo')}
-            </div>
-            <div><div class="txt">${esc(a.text)}</div><div class="time">${timeAgo(a.tgl)}</div></div>
+        <div class="activity-feed">
+        ${(d.recentActivity||[]).length===0 ? emptyState('Belum ada aktivitas') : groupActivityByDay(d.recentActivity).map(g=>`
+          <div class="activity-daygroup">
+            <div class="activity-daylabel">${esc(g.label)}</div>
+            ${g.items.map(a=>`
+              <div class="activity-item">
+                <div class="aic" style="background:${a.type==='Inbound'?'rgba(12,163,12,.16)':a.type==='Outbound'?'rgba(208,59,59,.16)':'rgba(57,135,229,.16)'};color:${a.type==='Inbound'?'var(--good)':a.type==='Outbound'?'var(--critical)':'var(--s1)'}">
+                  ${icon(a.type==='Inbound'?'inbound':a.type==='Outbound'?'outbound':'wo')}
+                </div>
+                <div><div class="txt">${esc(a.text)}</div><div class="time">${timeAgo(a.tgl)}</div></div>
+              </div>`).join('')}
           </div>`).join('')}
+        </div>
       </div>
     </div>
     ${d.lowStockList && d.lowStockList.length ? `
@@ -1436,7 +1500,7 @@ async function renderDashboard(dashPeriod, scorePeriod){
   if((komposisiItems[0].value+komposisiItems[1].value)>0){
     const kd = donutChart(komposisiItems);
     const komposisiWrap = document.getElementById('komposisiWrap');
-    komposisiWrap.innerHTML = kd.svg + legendFor(komposisiItems);
+    komposisiWrap.innerHTML = kd.svg + donutBreakdownHtml(komposisiItems);
     attachDonutChart(komposisiWrap, kd);
   }
 
@@ -1455,7 +1519,7 @@ async function renderDashboard(dashPeriod, scorePeriod){
   if(poEntries.length){
     const donut = donutChart(poItems);
     const donutWrap = document.getElementById('donutWrap');
-    donutWrap.innerHTML = donut.svg + legendFor(poItems);
+    donutWrap.innerHTML = donut.svg + donutBreakdownHtml(poItems);
     attachDonutChart(donutWrap, donut);
   }
 }
