@@ -146,6 +146,15 @@ th .sort-arrow{font-size:9px;margin-left:3px;opacity:.6;}
 tbody tr{transition:.1s;}
 tbody tr:hover td{background:rgba(20,30,55,.035);}
 td.num{font-variant-numeric:tabular-nums;}
+/* Tabel data (dataTable()) - wrapper dibatasi tinggi supaya header ikut "freeze" (position:sticky) saat scroll
+   vertikal di dalam tabelnya sendiri, terpisah dari scroll halaman - konsisten dipakai di semua menu list
+   karena dataTable() adalah komponen bersama. */
+.tbl-scroll{max-height:560px;overflow:auto;border-radius:8px;}
+.tbl-scroll table thead th{position:sticky;top:0;z-index:3;box-shadow:0 1px 0 var(--border);}
+.tbl-pagination{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;
+  margin-top:12px;padding-top:12px;border-top:1px solid var(--border);}
+.tbl-pg-btns{display:flex;align-items:center;gap:10px;}
+.tbl-pg-info{font-size:12px;color:var(--ink-muted);font-weight:700;white-space:nowrap;}
 
 .badge{padding:4px 10px;border-radius:999px;font-size:11px;font-weight:700;display:inline-flex;align-items:center;gap:5px;white-space:nowrap;}
 .badge .dot{width:6px;height:6px;border-radius:50%;}
@@ -733,7 +742,13 @@ function filterBarHtml(tableId, extra, dateField, handlers, searchCfg){
   const resetFn = handlers.reset || `resetFilterBar('${tableId}')`;
   window['__fltdatefield_'+tableId] = dateField || 'CreatedAt';
   window['__fltextra_'+tableId] = extra.map(f=>f.key);
+  window['__fltextradefs_'+tableId] = extra;
   window['__fltsearchkeys_'+tableId] = searchCfg ? searchCfg.keys : null;
+  // Dropdown filter (Status/Supplier/dll) dibuat "searchable" (combo, bukan <select> polos) - kalau opsinya
+  // banyak (mis. puluhan supplier), user tinggal ketik alih-alih scroll manual. Dipasang lewat setTimeout(0)
+  // supaya elemen DOM-nya sudah pasti ada dulu di halaman (filterBarHtml cuma balikin STRING HTML di sini -
+  // baru benar-benar masuk DOM setelah dipasang lewat setMain/openDrawer oleh pemanggilnya).
+  setTimeout(()=>attachFilterBarCombos(tableId), 0);
   return `
     <div class="panel" style="margin-bottom:12px;">
       <div class="row-line" style="flex-wrap:wrap;gap:10px;align-items:flex-end;">
@@ -745,13 +760,23 @@ function filterBarHtml(tableId, extra, dateField, handlers, searchCfg){
         </div>` : ''}
         <div><label style="font-size:11px;display:block;">Dari Tanggal</label><input type="date" id="flt_${tableId}_from" style="width:150px;"></div>
         <div><label style="font-size:11px;display:block;">Ke Tanggal</label><input type="date" id="flt_${tableId}_to" style="width:150px;"></div>
-        ${extra.map(f=>`<div><label style="font-size:11px;display:block;">${esc(f.label)}</label>
-          <select id="flt_${tableId}_${f.key}" style="min-width:130px;"><option value="">Semua</option>${f.options.map(o=>`<option value="${esc(o)}">${esc(o)}</option>`).join('')}</select></div>`).join('')}
+        ${extra.map(f=>`<div style="min-width:170px;"><label style="font-size:11px;display:block;">${esc(f.label)}</label>
+          ${comboSearchHtml('flt_'+tableId+'_'+f.key, 'Semua')}</div>`).join('')}
         <button class="btn outline sm" onclick="${applyFn}">Terapkan Filter</button>
         <button class="btn ghost sm" onclick="${resetFn}">Reset</button>
       </div>
     </div>
   `;
+}
+// Pasang search-combo untuk semua dropdown filter (extra) milik satu filter bar - dipanggil otomatis lewat
+// setTimeout di filterBarHtml() jadi tidak perlu diingat manual di tiap halaman yang pakai filterBarHtml().
+function attachFilterBarCombos(tableId){
+  const defs = window['__fltextradefs_'+tableId] || [];
+  defs.forEach(f=>{
+    attachComboSearch('flt_'+tableId+'_'+f.key, f.options||[], {
+      getLabel:o=>o, getValue:o=>o, searchText:o=>o
+    });
+  });
 }
 function applyFilterBar(tableId, onFiltered){
   const raw = window['__rawdata_'+tableId] || [];
@@ -777,20 +802,27 @@ function applyFilterBar(tableId, onFiltered){
 function resetFilterBar(tableId, onFiltered){
   setFieldValue('flt_'+tableId+'_from','');
   setFieldValue('flt_'+tableId+'_to','');
-  (window['__fltextra_'+tableId]||[]).forEach(k=>setFieldValue('flt_'+tableId+'_'+k,''));
+  (window['__fltextra_'+tableId]||[]).forEach(k=>{
+    setFieldValue('flt_'+tableId+'_'+k,'');
+    setFieldValue('flt_'+tableId+'_'+k+'_input','');
+  });
   if(window['__fltsearchkeys_'+tableId]) setFieldValue('flt_'+tableId+'_q','');
   const raw = window['__rawdata_'+tableId] || [];
   if(onFiltered) onFiltered(raw);
   else if(window['__tbl_'+tableId]) window['__tbl_'+tableId].refresh(raw);
 }
 function dataTable(opts){
-  // opts: {id, columns:[{key,label,render,sortable,numeric}], rows, searchKeys, rowActions, showSearch}
+  // opts: {id, columns:[{key,label,render,sortable,numeric}], rows, searchKeys, rowActions, showSearch, pageSize}
   // PENTING: kotak pencarian bawaan tabel ini dirender SEKALI saja di luar bagian yang diganti ulang
   // (bodyId/countId) - kalau <input>-nya ikut ditulis ulang lewat innerHTML tiap kali mengetik, elemen DOM-nya
   // dibuat baru dan browser kehilangan fokus/kursor (harus klik lagi tiap 1 huruf). Ini bug lama yang sempat
   // ada sebelum dipisah begini - jangan digabung balik jadi satu innerHTML besar.
+  // Pagination: default 25 baris/halaman (opts.pageSize bisa override) supaya tabel dengan ratusan baris tidak
+  // dirender sekaligus (berat) dan tetap gampang dinavigasi. Header tabel (<thead>) di-freeze (position:sticky)
+  // lewat wrapper .tbl-scroll yang tingginya dibatasi, jadi tetap kelihatan saat scroll ke bawah dalam tabel itu.
   window['__rawdata_'+opts.id] = opts.rows;
-  const state = { sortKey:null, sortDir:1, q:'' };
+  const pageSize = opts.pageSize || 25;
+  const state = { sortKey:null, sortDir:1, q:'', page:1 };
   const wrapId = 'tbl_'+opts.id;
   const bodyId = 'tblbody_'+opts.id;
   const countId = 'tblcount_'+opts.id;
@@ -814,20 +846,34 @@ function dataTable(opts){
     const countEl = document.getElementById(countId);
     if(countEl) countEl.textContent = filtered.length + ' data';
     if(!bodyEl) return;
+    const totalPages = Math.max(1, Math.ceil(filtered.length/pageSize));
+    if(state.page > totalPages) state.page = totalPages;
+    if(state.page < 1) state.page = 1;
+    const startIdx = (state.page-1)*pageSize;
+    const pageRows = filtered.slice(startIdx, startIdx+pageSize);
     bodyEl.innerHTML = `
-      <table><thead><tr>
+      <div class="tbl-scroll"><table><thead><tr>
         ${opts.columns.map(c=>`<th ${c.sortable!==false?`onclick="window.__tbl_${opts.id}.sort('${c.key}')"`:''}>${c.label}${state.sortKey===c.key?`<span class="sort-arrow">${state.sortDir>0?'▲':'▼'}</span>`:''}</th>`).join('')}
         ${opts.rowActions?'<th></th>':''}
       </tr></thead><tbody>
-      ${filtered.length===0 ? `<tr><td colspan="${opts.columns.length+1}">${emptyState('Tidak ada data')}</td></tr>` :
-        filtered.map(row=>`<tr>${opts.columns.map(c=>`<td class="${c.numeric?'num':''}">${c.render?c.render(row):esc(row[c.key])}</td>`).join('')}${opts.rowActions?`<td>${opts.rowActions(row)}</td>`:''}</tr>`).join('')}
-      </tbody></table>
+      ${pageRows.length===0 ? `<tr><td colspan="${opts.columns.length+1}">${emptyState('Tidak ada data')}</td></tr>` :
+        pageRows.map(row=>`<tr>${opts.columns.map(c=>`<td class="${c.numeric?'num':''}">${c.render?c.render(row):esc(row[c.key])}</td>`).join('')}${opts.rowActions?`<td>${opts.rowActions(row)}</td>`:''}</tr>`).join('')}
+      </tbody></table></div>
+      ${filtered.length>0 ? `<div class="tbl-pagination">
+        <span class="muted" style="font-size:12px;">Menampilkan ${startIdx+1}-${Math.min(startIdx+pageSize, filtered.length)} dari ${filtered.length} data</span>
+        <div class="tbl-pg-btns">
+          <button class="btn ghost sm" ${state.page<=1?'disabled':''} onclick="window.__tbl_${opts.id}.gotoPage(${state.page-1})">&larr; Sebelumnya</button>
+          <span class="tbl-pg-info">Halaman ${state.page} / ${totalPages}</span>
+          <button class="btn ghost sm" ${state.page>=totalPages?'disabled':''} onclick="window.__tbl_${opts.id}.gotoPage(${state.page+1})">Selanjutnya &rarr;</button>
+        </div>
+      </div>` : ''}
     `;
   }
   window['__tbl_'+opts.id] = {
-    search(q){ state.q = q; render(); },
+    search(q){ state.q = q; state.page = 1; render(); },
     sort(k){ if(state.sortKey===k) state.sortDir*=-1; else {state.sortKey=k; state.sortDir=1;} render(); },
-    refresh(rows){ if(rows) opts.rows = rows; render(); }
+    refresh(rows){ if(rows) opts.rows = rows; state.page = 1; render(); },
+    gotoPage(n){ state.page = n; render(); }
   };
   return `<div id="${wrapId}">
     <div class="flex-between" style="margin-bottom:12px;">
@@ -837,7 +883,7 @@ function dataTable(opts){
       </div>`}
       <span class="muted" id="${countId}" style="font-size:12px;"></span>
     </div>
-    <div id="${bodyId}" style="overflow-x:auto;"></div>
+    <div id="${bodyId}"></div>
   </div>`;
 }
 function initTable(id){ window['__tbl_'+id].search(''); }
@@ -4049,12 +4095,12 @@ async function formPO(){
       ${skippedCount>0?`<p style="font-size:11.5px;color:#8a5f00;margin:0 0 6px;">⚠ ${skippedCount} part disembunyikan dari daftar karena belum punya Harga Beli di Part Master. Lengkapi dulu di menu Part Master.</p>`:''}
       ${window.__parts.length===0?`<p class="muted" style="font-size:12px;">Belum ada part dengan Harga Beli terdaftar. Tambahkan Harga Beli di Part Master dulu.</p>`:`
       <div class="row-line">
-        <select id="po_part_select" style="flex:2" onchange="updatePOPartHargaPreview()">${window.__parts.map(p=>`<option value="${p.PartNumber}">${esc(p.PartNumber)} - ${esc(p.PartName)}</option>`).join('')}</select>
-        <input id="po_part_qty" type="number" value="1" style="width:60px">
-        <span id="po_part_harga_preview" class="muted" style="font-size:12px;min-width:110px;white-space:nowrap;">-</span>
+        <div style="flex:2"><label style="font-size:11px;">Cari Part</label>${comboSearchHtml('po_part_combo','Cari No Part / Nama Part...')}</div>
+        <div><label style="font-size:11px;display:block;">Qty</label><input id="po_part_qty" type="number" value="1" style="width:60px"></div>
+        <div><label style="font-size:11px;display:block;">Harga Beli</label><span id="po_part_harga_preview" class="muted" style="font-size:12px;min-width:110px;white-space:nowrap;display:inline-block;padding:9px 0;">-</span></div>
         <button class="btn accent sm" onclick="addPOPart()">+ Add</button>
       </div>
-      <p style="font-size:11px;color:#666;margin:2px 0 0;">Harga otomatis mengikuti Harga Beli di Part Master (tidak bisa diubah manual di sini).</p>
+      <p style="font-size:11px;color:#666;margin:2px 0 0;">Harga otomatis mengikuti Harga Beli di Part Master (tidak bisa diubah manual di sini). Ketik No. Part atau Nama Part untuk mencari (lebih cepat dari scroll daftar kalau part-nya ribuan).</p>
       `}
       <div id="po_part_list"></div>
       <div class="panel" style="margin-top:6px;background:var(--surface-2);"><div class="kv"><span>Estimasi Total PO</span><b id="po_total_preview">Rp 0</b></div></div>
@@ -4062,21 +4108,31 @@ async function formPO(){
     <div class="drawer-foot"><button class="btn secondary" onclick="closeDrawer()">Batal</button>
     <button class="btn" onclick="submitPO()">Simpan PO</button></div>
   `, true);
-  if(window.__parts.length>0) updatePOPartHargaPreview();
+  if(window.__parts.length>0){
+    attachComboSearch('po_part_combo', window.__parts, {
+      getLabel:p=>`${p.PartNumber} - ${p.PartName}`,
+      getSub:p=>`Harga Beli: ${fmtMoneyFull(parseMoneyLoose(p.HargaBeli))}`,
+      getValue:p=>p.PartNumber,
+      searchText:p=>`${p.PartNumber} ${p.PartName}`,
+      onSelect:()=>updatePOPartHargaPreview()
+    });
+  }
   renderPOCart();
 }
 function updatePOPartHargaPreview(){
-  const pn = val('po_part_select');
+  const pn = val('po_part_combo');
   const part = window.__parts.find(p=>String(p.PartNumber)===String(pn));
   const el = document.getElementById('po_part_harga_preview');
   if(el) el.textContent = part ? fmtMoneyFull(parseMoneyLoose(part.HargaBeli)) : '-';
 }
 function addPOPart(){
-  const pn = val('po_part_select'); const qty = Number(val('po_part_qty'))||1;
+  const pn = val('po_part_combo'); const qty = Number(val('po_part_qty'))||1;
   const part = window.__parts.find(p=>String(p.PartNumber)===String(pn));
   const harga = part ? parseMoneyLoose(part.HargaBeli) : 0;
-  if(!part || harga<=0){ toast('Part ini belum punya Harga Beli di Part Master, tidak bisa dimasukkan ke PO.', true); return; }
+  if(!part || harga<=0){ toast('Pilih part dulu dari hasil pencarian (part yang dipilih harus sudah punya Harga Beli di Part Master).', true); return; }
   poCart.push({PartNumber:pn, PartName:part.PartName, QtyOrder:qty, HargaSatuan:harga});
+  setFieldValue('po_part_combo',''); const inp=document.getElementById('po_part_combo_input'); if(inp) inp.value='';
+  updatePOPartHargaPreview();
   renderPOCart();
 }
 function removePOPart(i){ poCart.splice(i,1); renderPOCart(); }
@@ -4439,7 +4495,7 @@ async function renderInboundManual(){
     <div class="page-head"><div><h2>Inbound Part (Manual)</h2><p>Tambah stok manual: retur, penyesuaian, dll. Pengajuan ini WAJIB disetujui Manager dulu (menu "Approval Inbound Manual") sebelum stok benar-benar bertambah.</p></div></div>
     <div class="panel">
       <div class="grid3">
-        <div><label>Part</label><select id="ml_part">${window.__parts.map(p=>`<option value="${p.PartNumber}">${esc(p.PartNumber)} - ${esc(p.PartName)} (stok:${p.StokAkhir})</option>`).join('')}</select></div>
+        <div><label>Cari Part</label>${comboSearchHtml('ml_part','Cari No Part / Nama Part...')}</div>
         <div><label>Qty</label><input id="ml_qty" type="number" value="1"></div>
         <div><label>Sumber</label><input id="ml_sumber" placeholder="mis. Retur Customer / Adjustment"></div>
       </div>
@@ -4454,10 +4510,17 @@ async function renderInboundManual(){
       </table>`}
     </div>
   `);
+  attachComboSearch('ml_part', window.__parts, {
+    getLabel:p=>`${p.PartNumber} - ${p.PartName}`,
+    getSub:p=>`Stok: ${p.StokAkhir}`,
+    getValue:p=>p.PartNumber,
+    searchText:p=>`${p.PartNumber} ${p.PartName}`
+  });
 }
 async function submitInboundManual(){
   const actor = getActor();
   const payload = { PartNumber: val('ml_part'), Qty: val('ml_qty'), Sumber: val('ml_sumber'), Reference: val('ml_ref'), Keterangan: val('ml_ket'), ActorRole: actor.role, ActorName: actor.name||'' };
+  if(!payload.PartNumber){ toast('Pilih part dulu dari hasil pencarian.', true); return; }
   const res = await apiPost('createInboundManual', payload);
   if(res.success){ toast('Pengajuan Inbound tersimpan ('+res.id+'), menunggu persetujuan Manager.'); renderInboundManual(); } else toast(res.message,true);
 }
@@ -4472,7 +4535,7 @@ async function renderManualLedgerForm(tipe){
     <div class="page-head"><div><h2>${tipe} Part (Manual)</h2><p>${tipe==='Inbound'?'Tambah stok manual: retur, penyesuaian, dll':'Kurangi stok manual: retur ke supplier, kerusakan, penyesuaian, dll'}</p></div></div>
     <div class="panel">
       <div class="grid3">
-        <div><label>Part</label><select id="ml_part">${window.__parts.map(p=>`<option value="${p.PartNumber}">${esc(p.PartNumber)} - ${esc(p.PartName)} (stok:${p.StokAkhir})</option>`).join('')}</select></div>
+        <div><label>Cari Part</label>${comboSearchHtml('ml_part','Cari No Part / Nama Part...')}</div>
         <div><label>Qty</label><input id="ml_qty" type="number" value="1"></div>
         <div><label>Sumber</label><input id="ml_sumber" placeholder="mis. Retur Customer / Adjustment"></div>
       </div>
@@ -4487,9 +4550,16 @@ async function renderManualLedgerForm(tipe){
       </table>`}
     </div>
   `);
+  attachComboSearch('ml_part', window.__parts, {
+    getLabel:p=>`${p.PartNumber} - ${p.PartName}`,
+    getSub:p=>`Stok: ${p.StokAkhir}`,
+    getValue:p=>p.PartNumber,
+    searchText:p=>`${p.PartNumber} ${p.PartName}`
+  });
 }
 async function submitManualLedger(tipe){
   const payload = { PartNumber: val('ml_part'), Qty: val('ml_qty'), Sumber: val('ml_sumber'), Reference: val('ml_ref'), Keterangan: val('ml_ket') };
+  if(!payload.PartNumber){ toast('Pilih part dulu dari hasil pencarian.', true); return; }
   const res = await apiPost(tipe==='Inbound'?'createInboundManual':'createOutboundManual', payload);
   if(res.success){ toast(tipe+' tersimpan, stok akhir: '+res.stokAkhir); renderManualLedgerForm(tipe); } else toast(res.message,true);
 }
