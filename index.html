@@ -520,6 +520,7 @@ const NAV = [
     {id:'penerimaan', label:'Penerimaan Part', icon:'receive'},
     {id:'signin', label:'Sign In (Isi Rak)', icon:'inbound'},
     {id:'inbound', label:'Inbound Part', icon:'inbound'},
+    {id:'inbound-approval', label:'Approval Inbound Manual', icon:'approve'},
     {id:'inventory-master', label:'Inventory Master', icon:'card'},
     {id:'outbound', label:'Outbound Part', icon:'outbound'},
     {id:'inbound-history', label:'Inbound History', icon:'history'},
@@ -688,6 +689,7 @@ function toast(msg, isError=false){
 function fmtMoney(n){ n = Number(n)||0; if(Math.abs(n)>=1000000) return 'Rp '+(n/1000000).toFixed(1).replace('.0','')+'jt'; return 'Rp ' + n.toLocaleString('id-ID'); }
 function fmtMoneyFull(n){ return 'Rp ' + (Number(n)||0).toLocaleString('id-ID'); }
 function fmtDate(d){ if(!d) return '-'; const dt = new Date(d); return isNaN(dt) ? d : dt.toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'numeric'}); }
+function fmtDateTime(d){ if(!d) return '-'; const dt = new Date(d); if(isNaN(dt)) return d; return dt.toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'numeric'})+', '+dt.toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'}); }
 function timeAgo(d){ if(!d) return ''; const s = (Date.now()-new Date(d).getTime())/1000; if(s<60) return 'baru saja'; if(s<3600) return Math.floor(s/60)+' menit lalu'; if(s<86400) return Math.floor(s/3600)+' jam lalu'; return Math.floor(s/86400)+' hari lalu'; }
 function val(id){ const e = document.getElementById(id); return e ? e.value : ''; }
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -782,10 +784,16 @@ function resetFilterBar(tableId, onFiltered){
   else if(window['__tbl_'+tableId]) window['__tbl_'+tableId].refresh(raw);
 }
 function dataTable(opts){
-  // opts: {id, columns:[{key,label,render,sortable,numeric}], rows, searchKeys, rowActions}
+  // opts: {id, columns:[{key,label,render,sortable,numeric}], rows, searchKeys, rowActions, showSearch}
+  // PENTING: kotak pencarian bawaan tabel ini dirender SEKALI saja di luar bagian yang diganti ulang
+  // (bodyId/countId) - kalau <input>-nya ikut ditulis ulang lewat innerHTML tiap kali mengetik, elemen DOM-nya
+  // dibuat baru dan browser kehilangan fokus/kursor (harus klik lagi tiap 1 huruf). Ini bug lama yang sempat
+  // ada sebelum dipisah begini - jangan digabung balik jadi satu innerHTML besar.
   window['__rawdata_'+opts.id] = opts.rows;
   const state = { sortKey:null, sortDir:1, q:'' };
   const wrapId = 'tbl_'+opts.id;
+  const bodyId = 'tblbody_'+opts.id;
+  const countId = 'tblcount_'+opts.id;
   function matches(row){
     if(!state.q) return true;
     const q = state.q.toLowerCase();
@@ -802,17 +810,11 @@ function dataTable(opts){
   }
   function render(){
     const filtered = sortRows(opts.rows.filter(matches));
-    const el = document.getElementById(wrapId);
-    if(!el) return;
-    el.innerHTML = `
-      <div class="flex-between" style="margin-bottom:12px;">
-        ${opts.showSearch===false ? '<div></div>' : `<div class="searchbox" style="width:220px;margin-left:0;">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
-          <input placeholder="Cari..." value="${esc(state.q)}" oninput="window.__tbl_${opts.id}.search(this.value)">
-        </div>`}
-        <span class="muted" style="font-size:12px;">${filtered.length} data</span>
-      </div>
-      <div style="overflow-x:auto;">
+    const bodyEl = document.getElementById(bodyId);
+    const countEl = document.getElementById(countId);
+    if(countEl) countEl.textContent = filtered.length + ' data';
+    if(!bodyEl) return;
+    bodyEl.innerHTML = `
       <table><thead><tr>
         ${opts.columns.map(c=>`<th ${c.sortable!==false?`onclick="window.__tbl_${opts.id}.sort('${c.key}')"`:''}>${c.label}${state.sortKey===c.key?`<span class="sort-arrow">${state.sortDir>0?'▲':'▼'}</span>`:''}</th>`).join('')}
         ${opts.rowActions?'<th></th>':''}
@@ -820,7 +822,6 @@ function dataTable(opts){
       ${filtered.length===0 ? `<tr><td colspan="${opts.columns.length+1}">${emptyState('Tidak ada data')}</td></tr>` :
         filtered.map(row=>`<tr>${opts.columns.map(c=>`<td class="${c.numeric?'num':''}">${c.render?c.render(row):esc(row[c.key])}</td>`).join('')}${opts.rowActions?`<td>${opts.rowActions(row)}</td>`:''}</tr>`).join('')}
       </tbody></table>
-      </div>
     `;
   }
   window['__tbl_'+opts.id] = {
@@ -828,7 +829,16 @@ function dataTable(opts){
     sort(k){ if(state.sortKey===k) state.sortDir*=-1; else {state.sortKey=k; state.sortDir=1;} render(); },
     refresh(rows){ if(rows) opts.rows = rows; render(); }
   };
-  return `<div id="${wrapId}"></div>`;
+  return `<div id="${wrapId}">
+    <div class="flex-between" style="margin-bottom:12px;">
+      ${opts.showSearch===false ? '<div></div>' : `<div class="searchbox" style="width:220px;margin-left:0;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        <input placeholder="Cari..." oninput="window.__tbl_${opts.id}.search(this.value)">
+      </div>`}
+      <span class="muted" id="${countId}" style="font-size:12px;"></span>
+    </div>
+    <div id="${bodyId}" style="overflow-x:auto;"></div>
+  </div>`;
 }
 function initTable(id){ window['__tbl_'+id].search(''); }
 
@@ -1092,6 +1102,7 @@ const views = {
   penerimaan: renderPenerimaan,
   signin: renderSignIn,
   inbound: renderInboundManual,
+  'inbound-approval': renderInboundApproval,
   'inventory-master': renderInventoryMaster,
   outbound: renderOutboundManual,
   'inbound-history': renderInboundHistory,
@@ -4271,12 +4282,15 @@ async function renderPenerimaan(){
       {key:'Status', label:'Status', options:[...new Set(grData.map(g=>g.Status).filter(Boolean))]}
     ], 'TglTerima', null, {keys:['GRNumber','PONumber'], placeholder:'Cari No. GR / No. PO...'})}
     <div class="panel">${dataTable({
-      id:'gr', rows:grData, searchKeys:['GRNumber','PONumber'], showSearch:false,
+      id:'gr', rows:grData, searchKeys:['GRNumber','PONumber','NoSuratJalan'], showSearch:false,
       columns:[
-        {key:'GRNumber', label:'GR Number'}, {key:'PONumber', label:'PO Number'},
+        {key:'GRNumber', label:'GR Number', render:g=>`<span class="link-id" onclick="viewPenerimaan('${esc(g.GRNumber)}')">${esc(g.GRNumber)}</span>`},
+        {key:'PONumber', label:'PO Number'},
+        {key:'NoSuratJalan', label:'No. Surat Jalan', render:g=>g.NoSuratJalan?`<span class="link-id" onclick="viewPenerimaan('${esc(g.GRNumber)}')">${esc(g.NoSuratJalan)}</span>`:'<span class="muted">-</span>'},
         {key:'TglTerima', label:'Tgl Terima', render:g=>fmtDate(g.TglTerima)},
         {key:'Status', label:'Status', render:g=>statusBadge(g.Status,{Completed:'good',Partial:'warn'})}
-      ]
+      ],
+      rowActions:g=>`<button class="btn ghost sm" onclick="viewPenerimaan('${esc(g.GRNumber)}')">Detail</button>`
     })}</div>
   `);
   initTable('gr');
@@ -4287,7 +4301,13 @@ async function formPenerimaan(){
     <div class="drawer-head"><h3>Buat Penerimaan Part</h3><button class="drawer-close" onclick="closeDrawer()">&times;</button></div>
     <div class="drawer-body">
       <label>PO</label><select id="gr_po" onchange="loadPODetailForGR()">${options}</select>
-      <label>Diterima Oleh</label><input id="gr_diterima">
+      <label>No. Surat Jalan (Ekspedisi/Supplier) <span style="color:var(--critical);">*wajib</span></label>
+      <input id="gr_suratjalan" placeholder="mis. SJ-00123">
+      <div class="grid3">
+        <div><label>Diterima Oleh</label><input id="gr_diterima"></div>
+        <div><label>Nama Driver <span class="muted" style="font-weight:400;">(opsional)</span></label><input id="gr_driver"></div>
+        <div><label>No. Polisi Ekspedisi <span class="muted" style="font-weight:400;">(opsional)</span></label><input id="gr_noplat"></div>
+      </div>
       <div id="gr_detail_list"></div>
       <label>Catatan</label><textarea id="gr_catatan"></textarea>
     </div>
@@ -4323,12 +4343,48 @@ async function loadPODetailForGR(){
   });
 }
 async function submitPenerimaan(){
+  if(!val('gr_suratjalan').trim()){ toast('No. Surat Jalan wajib diisi sebelum menyimpan Penerimaan.', true); return; }
   const details = window.__grDetails.map((d,i)=>({
     PartNumber: d.PartNumber, QtyDiterima: Number(val('gr_qty_'+i))||0, Kondisi: val('gr_kondisi_'+i)
   })).filter(d=>d.QtyDiterima>0);
-  const payload = { PONumber: val('gr_po'), DiterimaOleh: val('gr_diterima'), Catatan: val('gr_catatan'), details };
+  const payload = {
+    PONumber: val('gr_po'), DiterimaOleh: val('gr_diterima'), Catatan: val('gr_catatan'), details,
+    NoSuratJalan: val('gr_suratjalan'), NamaDriver: val('gr_driver'), NoPolisiEkspedisi: val('gr_noplat')
+  };
   const res = await apiPost('createPenerimaan', payload);
   if(res.success){ toast('Penerimaan tersimpan: '+res.id+'. Part kondisi OK sudah masuk antrean Sign In.'); closeDrawer(); renderPenerimaan(); } else toast(res.message,true);
+}
+async function viewPenerimaan(grnumber){
+  openDrawer(`
+    <div class="drawer-head"><h3>Detail Penerimaan ${esc(grnumber)}</h3><button class="drawer-close" onclick="closeDrawer()">&times;</button></div>
+    <div class="drawer-body" id="gr_view_body">${skeletonRows(3)}</div>
+    <div class="drawer-foot"><button class="btn secondary" onclick="closeDrawer()">Tutup</button></div>
+  `);
+  const res = await apiGet('getPenerimaanDetail', {id:grnumber});
+  const body = document.getElementById('gr_view_body');
+  if(!body) return;
+  if(!res.success){ body.innerHTML = emptyState(res.message); return; }
+  const {header, details} = res.data;
+  body.innerHTML = `
+    <div class="kv"><span>GR Number</span><b>${esc(header.GRNumber)}</b></div>
+    <div class="kv"><span>PO Number</span><b>${esc(header.PONumber)}</b></div>
+    <div class="kv"><span>No. Surat Jalan</span><b>${esc(header.NoSuratJalan||'-')}</b></div>
+    <div class="kv"><span>Nama Driver</span><b>${esc(header.NamaDriver||'-')}</b></div>
+    <div class="kv"><span>No. Polisi Ekspedisi</span><b>${esc(header.NoPolisiEkspedisi||'-')}</b></div>
+    <div class="kv"><span>Tgl &amp; Jam Diterima</span><b>${esc(fmtDateTime(header.TglTerima))}</b></div>
+    <div class="kv"><span>Diterima Oleh</span><b>${esc(header.DiterimaOleh||'-')}</b></div>
+    <div class="kv"><span>Status</span><b>${statusBadge(header.Status,{Completed:'good',Partial:'warn'})}</b></div>
+    ${header.Catatan?`<p class="sub" style="margin-top:10px;"><b>Catatan:</b> ${esc(header.Catatan)}</p>`:''}
+    <h3 style="font-size:13.5px;margin-top:16px;">Detail Part</h3>
+    <table><tr><th>Part</th><th>Order</th><th>Diterima</th><th>Selisih</th><th>Kondisi</th><th>Status Sign In</th><th>Lokasi</th></tr>
+      ${details.map(d=>`<tr>
+        <td>${esc(d.PartName)} <span class="muted" style="font-size:10.5px;">(${esc(d.PartNumber)})</span></td>
+        <td class="num">${d.QtyOrder}</td><td class="num">${d.QtyDiterima}</td><td class="num">${d.Selisih}</td>
+        <td>${d.Kondisi==='OK'?'<span class="badge good"><span class="dot"></span>OK</span>':'<span class="badge critical"><span class="dot"></span>NG</span>'}</td>
+        <td>${esc(d.SignInStatus||'-')}</td><td>${esc(d.Lokasi||'-')}</td>
+      </tr>`).join('')}
+    </table>
+  `;
 }
 
 /* ================= INVENTORY: SIGN IN / ISI RAK ================= */
@@ -4373,7 +4429,39 @@ async function submitSignInBatch(){
 }
 
 /* ================= INVENTORY: INBOUND / OUTBOUND MANUAL ================= */
-async function renderInboundManual(){ renderManualLedgerForm('Inbound'); }
+const INBOUND_REQ_BADGE = {'Pending Approval':'serious', Approved:'good', Rejected:'critical'};
+async function renderInboundManual(){
+  setMain(skeletonRows(3));
+  const pres = await apiGet('listPart'); window.__parts = pres.data||[];
+  const listRes = await apiGet('listInboundManualRequest');
+  const recent = (listRes.data||[]).slice(0,10);
+  setMain(`
+    <div class="page-head"><div><h2>Inbound Part (Manual)</h2><p>Tambah stok manual: retur, penyesuaian, dll. Pengajuan ini WAJIB disetujui Manager dulu (menu "Approval Inbound Manual") sebelum stok benar-benar bertambah.</p></div></div>
+    <div class="panel">
+      <div class="grid3">
+        <div><label>Part</label><select id="ml_part">${window.__parts.map(p=>`<option value="${p.PartNumber}">${esc(p.PartNumber)} - ${esc(p.PartName)} (stok:${p.StokAkhir})</option>`).join('')}</select></div>
+        <div><label>Qty</label><input id="ml_qty" type="number" value="1"></div>
+        <div><label>Sumber</label><input id="ml_sumber" placeholder="mis. Retur Customer / Adjustment"></div>
+      </div>
+      <label>Referensi</label><input id="ml_ref" placeholder="No dokumen (opsional)">
+      <label>Keterangan</label><textarea id="ml_ket"></textarea>
+      <button class="btn good" onclick="submitInboundManual()">${icon('inbound')} Ajukan Inbound</button>
+    </div>
+    <div class="panel">
+      <h3>10 Pengajuan Terakhir</h3>
+      ${recent.length===0 ? emptyState('Belum ada pengajuan') : `<table><tr><th>Tgl Ajuan</th><th>Part</th><th>Qty</th><th>Sumber</th><th>Diajukan Oleh</th><th>Status</th></tr>
+      ${recent.map(r=>`<tr><td>${fmtDate(r.RequestedAt)}</td><td>${esc(r.PartName)}</td><td class="num">${r.Qty}</td><td>${esc(r.Sumber)}</td><td>${esc(r.RequestedBy||'-')}</td><td>${statusBadge(r.Status, INBOUND_REQ_BADGE)}</td></tr>`).join('')}
+      </table>`}
+    </div>
+  `);
+}
+async function submitInboundManual(){
+  const actor = getActor();
+  const payload = { PartNumber: val('ml_part'), Qty: val('ml_qty'), Sumber: val('ml_sumber'), Reference: val('ml_ref'), Keterangan: val('ml_ket'), ActorRole: actor.role, ActorName: actor.name||'' };
+  const res = await apiPost('createInboundManual', payload);
+  if(res.success){ toast('Pengajuan Inbound tersimpan ('+res.id+'), menunggu persetujuan Manager.'); renderInboundManual(); } else toast(res.message,true);
+}
+
 async function renderOutboundManual(){ renderManualLedgerForm('Outbound'); }
 async function renderManualLedgerForm(tipe){
   setMain(skeletonRows(3));
@@ -4404,6 +4492,43 @@ async function submitManualLedger(tipe){
   const payload = { PartNumber: val('ml_part'), Qty: val('ml_qty'), Sumber: val('ml_sumber'), Reference: val('ml_ref'), Keterangan: val('ml_ket') };
   const res = await apiPost(tipe==='Inbound'?'createInboundManual':'createOutboundManual', payload);
   if(res.success){ toast(tipe+' tersimpan, stok akhir: '+res.stokAkhir); renderManualLedgerForm(tipe); } else toast(res.message,true);
+}
+
+/* ================= INVENTORY: APPROVAL INBOUND MANUAL ================= */
+async function renderInboundApproval(){
+  setMain(skeletonRows(3));
+  const actor = getActor();
+  const res = await apiGet('listInboundManualRequest');
+  const all = res.data||[];
+  const pending = all.filter(r=>r.Status==='Pending Approval');
+  const riwayat = all.filter(r=>r.Status!=='Pending Approval').slice(0,10);
+  setMain(`
+    <div class="page-head"><div><h2>Approval Inbound Manual</h2><p>${pending.length} pengajuan Inbound Part manual menunggu persetujuan</p></div></div>
+    ${actor.role!=='Manager' ? `<div class="warn-box">Hanya akun Manager yang bisa menyetujui/menolak pengajuan ini.</div>` : ''}
+    <div class="panel">
+      ${pending.length===0 ? emptyState('Tidak ada pengajuan yang menunggu approval.') : `<table><tr><th>Tgl Ajuan</th><th>Part</th><th>Qty</th><th>Sumber</th><th>Referensi</th><th>Diajukan Oleh</th><th></th></tr>
+      ${pending.map(r=>`<tr><td>${fmtDate(r.RequestedAt)}</td><td>${esc(r.PartNumber)} - ${esc(r.PartName)}</td><td class="num">${r.Qty}</td><td>${esc(r.Sumber)}</td><td>${esc(r.Reference||'-')}</td><td>${esc(r.RequestedBy||'-')}</td>
+        <td>${actor.role==='Manager' ? `<button class="btn good sm" onclick="doApproveInboundManual('${r.RequestID}','Approve')">${icon('approve')} Approve</button>
+        <button class="btn critical sm" onclick="doApproveInboundManual('${r.RequestID}','Reject')">Reject</button>` : ''}</td></tr>`).join('')}
+      </table>`}
+    </div>
+    <div class="panel">
+      <h3>Riwayat Keputusan Terakhir</h3>
+      ${riwayat.length===0 ? emptyState('Belum ada riwayat') : `<table><tr><th>Tgl Ajuan</th><th>Part</th><th>Qty</th><th>Diajukan Oleh</th><th>Status</th><th>Diputuskan Oleh</th></tr>
+      ${riwayat.map(r=>`<tr><td>${fmtDate(r.RequestedAt)}</td><td>${esc(r.PartNumber)} - ${esc(r.PartName)}</td><td class="num">${r.Qty}</td><td>${esc(r.RequestedBy||'-')}</td><td>${statusBadge(r.Status, INBOUND_REQ_BADGE)}</td><td>${esc(r.ApprovedBy||'-')}</td></tr>`).join('')}
+      </table>`}
+    </div>
+  `);
+}
+async function doApproveInboundManual(requestId, keputusan){
+  const actor = getActor();
+  if(actor.role!=='Manager'){ toast('Hanya akun Manager yang bisa menyetujui/menolak pengajuan ini.', true); return; }
+  let alasan = '';
+  if(keputusan==='Reject'){
+    alasan = prompt('Alasan penolakan (opsional):') || '';
+  } else if(!confirm('Setujui pengajuan Inbound ini? Stok di Inventory Master akan langsung bertambah.')) return;
+  const res = await apiPost('approveInboundManual', { RequestID: requestId, Keputusan: keputusan, Alasan: alasan, ActorRole: actor.role, ActorName: actor.name||'' });
+  if(res.success){ toast(keputusan==='Approve'?'Disetujui, stok sudah bertambah.':'Ditolak, stok tidak berubah.'); renderInboundApproval(); } else toast(res.message,true);
 }
 
 /* ================= INVENTORY: HISTORY ================= */
