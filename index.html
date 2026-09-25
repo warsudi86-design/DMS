@@ -1275,37 +1275,108 @@ Laporan
 }
 
 /* ================= DASHBOARD ================= */
-async function renderDashboard(period){
-  period = period || 'this_month';
-  setMain(`<div class="cards">${Array.from({length:5}).map(()=>'<div class="skeleton" style="height:90px"></div>').join('')}</div><div class="skeleton" style="height:260px"></div>`);
-  const res = await apiGet('getDashboard', {period});
+const DASH_INTEGRASI_PERIODS = [
+  {key:'today', label:'Hari Ini'},
+  {key:'this_week', label:'Minggu Ini'},
+  {key:'this_month', label:'Bulan Ini'}
+];
+async function renderDashboard(dashPeriod, scorePeriod){
+  dashPeriod = dashPeriod || 'today';
+  scorePeriod = scorePeriod || 'this_month';
+  setMain(`<div class="cards">${Array.from({length:6}).map(()=>'<div class="skeleton" style="height:90px"></div>').join('')}</div><div class="skeleton" style="height:260px"></div>`);
+
+  const [resInt, res] = await Promise.all([
+    apiGet('getDashboardIntegrasi', {period: dashPeriod}),
+    apiGet('getDashboard', {period: scorePeriod})
+  ]);
+  if(!resInt.success){ setMain(`<div class="panel">${emptyState('Gagal memuat dashboard: '+esc(resInt.message))}</div>`); return; }
+  const di = resInt.data;
+
   if(!res.success){ setMain(`<div class="panel">${emptyState('Gagal memuat dashboard: '+esc(res.message))}</div>`); return; }
   const d = res.data;
   const trend = d.periodTrend || {};
 
-  document.getElementById('bellDot').style.display = d.lowStockCount>0 ? 'block':'none';
+  document.getElementById('bellDot').style.display = di.lowStockCount>0 ? 'block':'none';
   const navBadge = document.getElementById('navLowStock');
-  if(navBadge){ navBadge.style.display = d.lowStockCount>0?'inline-block':'none'; navBadge.textContent = d.lowStockCount; }
+  if(navBadge){ navBadge.style.display = di.lowStockCount>0?'inline-block':'none'; navBadge.textContent = di.lowStockCount; }
 
   const woItems = Object.entries(d.woByStatus).map(([label,value])=>({label,value,colorVar:WO_STATUS_SLOT[label]}));
   const poEntries = Object.entries(d.poStatusBreakdown||{});
   const poColors = ['s1','s4','s6','s3','critical'];
   const poItems = poEntries.map(([label,value],i)=>({label,value,colorVar: PO_STATUS_BADGE[label]==='good'?'s6':PO_STATUS_BADGE[label]==='critical'?'s5': (poColors[i]||'s7')}));
 
+  const produktivitasItems = (di.produktivitasMekanik||[]).map(x=>({label:x.mekanik, value:x.jumlah, colorVar:'s1'}));
+  const komposisiEntries = Object.entries(di.komposisiPekerjaan||{});
+  const komposisiItems = komposisiEntries.map(([label,value],i)=>({label,value,colorVar: i===0?'s1':'s5'}));
+
   setMain(`
-    <div class="page-head"><div><h2>Dashboard</h2><p>Ringkasan performa periode: <b>${esc(periodLabel(period))}</b></p></div>
-      <div><label style="font-size:11px;display:block;">Periode Scorecard</label>${periodSelectorHtml('dash_period', period, 'renderDashboard(this.value)')}</div>
+    <div class="page-head"><div><h2>Dashboard Operasional</h2><p>Ringkasan real-time seluruh modul DMS Integrasi</p></div>
+      <div><label style="font-size:11px;display:block;">Periode Ringkasan</label>
+        <select id="dash_int_period" onchange="renderDashboard(this.value, '${scorePeriod}')">
+          ${DASH_INTEGRASI_PERIODS.map(o=>`<option value="${o.key}" ${o.key===dashPeriod?'selected':''}>${esc(o.label)}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+
+    <div class="cards">
+      <div class="stat-card"><div class="icon" style="background:rgba(57,135,229,.16);color:var(--s1)">${icon('vehicle')}</div>
+        <div class="label">Total Unit Masuk</div><div class="value">${di.unitMasuk.value}${trendBadgeHtml(di.unitMasuk.trend)}</div></div>
+      <div class="stat-card"><div class="icon" style="background:rgba(12,163,12,.16);color:var(--good)">${icon('money')}</div>
+        <div class="label">Revenue Workshop</div><div class="value" style="font-size:19px;">${fmtMoney(di.revenueWorkshop.value)}${trendBadgeHtml(di.revenueWorkshop.trend)}</div></div>
+      <div class="stat-card"><div class="icon" style="background:rgba(201,133,0,.16);color:var(--s4)">${icon('po')}</div>
+        <div class="label">Total Pembelian (PO)</div><div class="value" style="font-size:19px;">${fmtMoney(di.totalPembelian.value)}${trendBadgeHtml(di.totalPembelian.trend)}</div></div>
+      <div class="stat-card"><div class="icon" style="background:rgba(124,111,224,.16);color:var(--s7)">${icon('wo')}</div>
+        <div class="label">WIP Workshop <span style="font-weight:400;color:var(--ink-muted);">(delivery tdk dihitung)</span></div><div class="value">${di.wipWorkshop.value} Unit</div></div>
+      <div class="stat-card"><div class="icon" style="background:rgba(47,111,214,.10);color:var(--s1)">${icon('part')}</div>
+        <div class="label">Nilai Inventory</div><div class="value" style="font-size:19px;">${fmtMoney(di.nilaiInventory.value)}</div></div>
+      <div class="stat-card"><div class="icon" style="background:rgba(10,143,99,.16);color:var(--s3)">${icon('labor')}</div>
+        <div class="label">Utilisasi Mekanik</div><div class="value">${di.utilisasiMekanik.value}%</div>
+        <div class="sub" style="margin-top:4px;">${di.utilisasiMekanik.mekanikSibuk} dari ${di.utilisasiMekanik.totalMekanikAktif} mekanik aktif sedang menangani unit</div></div>
+    </div>
+
+    <div class="grid2">
+      <div class="panel">
+        <h3>Produktivitas Mekanik Hari Ini</h3>
+        <p class="sub">Jumlah unit yang selesai dikerjakan (status Completed) hari ini per mekanik</p>
+        <div id="prodChartWrap">${produktivitasItems.length? '' : emptyState('Belum ada unit selesai dikerjakan hari ini')}</div>
+      </div>
+      <div class="panel">
+        <h3>Komposisi Pekerjaan</h3>
+        <p class="sub">General Repair vs Body Repair - dari unit yang sedang WIP saat ini</p>
+        <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;" id="komposisiWrap">
+          ${(komposisiItems[0].value+komposisiItems[1].value)>0 ? '' : emptyState('Belum ada unit WIP saat ini')}
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Status Unit Real-time</h3>
+      <p class="sub">Semua unit yang masih berjalan di workshop saat ini (${di.statusUnit.length} unit)</p>
+      ${di.statusUnit.length===0 ? emptyState('Tidak ada unit yang sedang berjalan') : `
+      <table><tr><th>No. Polisi</th><th>Model Kendaraan</th><th>Service Advisor</th><th>Jenis</th><th>Status Terkini</th></tr>
+        ${di.statusUnit.map(u=>`<tr>
+          <td><span class="link-id" onclick="viewWorkOrder('${esc(u.WOID)}')">${esc(u.NoPolisi||'-')}</span></td>
+          <td>${esc(u.Model||'-')}</td>
+          <td>${esc(u.SA||'-')}</td>
+          <td>${esc(u.JenisWO||'-')}</td>
+          <td>${statusBadge(u.Status, WO_STATUS_SLOT)}</td>
+        </tr>`).join('')}
+      </table>`}
+    </div>
+
+    <div class="page-head" style="margin-top:8px;"><div><h2 style="font-size:16px;">Detail & Tren (${esc(periodLabel(scorePeriod))})</h2></div>
+      <div><label style="font-size:11px;display:block;">Periode Detail</label>${periodSelectorHtml('dash_period', scorePeriod, `renderDashboard('${dashPeriod}', this.value)`)}</div>
     </div>
     <div class="cards">
       <div class="stat-card"><div class="icon" style="background:rgba(57,135,229,.16);color:var(--s1)">${icon('wo')}</div>
-        <div class="label">WO Baru (${esc(periodLabel(period))})</div><div class="value">${d.woBaruPeriode}${trendBadgeHtml(trend.woBaru)}</div></div>
+        <div class="label">WO Baru (${esc(periodLabel(scorePeriod))})</div><div class="value">${d.woBaruPeriode}${trendBadgeHtml(trend.woBaru)}</div></div>
       <div class="stat-card"><div class="icon" style="background:rgba(201,133,0,.16);color:var(--s4)">${icon('po')}</div>
         <div class="label">PO Menunggu Approval</div><div class="value">${d.poPendingApproval}</div></div>
       <div class="stat-card"><div class="icon" style="background:rgba(208,59,59,.16);color:var(--critical)">${icon('warning')}</div>
         <div class="label">Part Stok Rendah</div><div class="value">${d.lowStockCount}</div>
         ${d.lowStockCount>0?`<div class="delta down">Perlu tindakan</div>`:`<div class="delta up">Semua aman</div>`}</div>
       <div class="stat-card"><div class="icon" style="background:rgba(12,163,12,.16);color:var(--good)">${icon('money')}</div>
-        <div class="label">Revenue (${esc(periodLabel(period))})</div><div class="value" style="font-size:19px;">${fmtMoney(d.revenueThisMonth)}${trendBadgeHtml(trend.revenue)}</div>
+        <div class="label">Revenue (${esc(periodLabel(scorePeriod))})</div><div class="value" style="font-size:19px;">${fmtMoney(d.revenueThisMonth)}${trendBadgeHtml(trend.revenue)}</div>
         ${d.revenueBySource ? `<div class="sub" style="margin-top:6px;line-height:1.6;">
           Service: <b>${fmtMoney(d.revenueBySource.service)}</b> (${d.revenueBySource.servicePct.toFixed(1)}%)<br>
           Part Direct Sales: <b>${fmtMoney(d.revenueBySource.partSales)}</b> (${d.revenueBySource.partSalesPct.toFixed(1)}%)
@@ -1353,6 +1424,21 @@ async function renderDashboard(period){
       </table>
     </div>` : ''}
   `);
+
+  if(produktivitasItems.length){
+    const pc = hBarChart(produktivitasItems, {fmt:v=>v+' unit'});
+    const prodWrap = document.getElementById('prodChartWrap');
+    prodWrap.innerHTML = pc.svg;
+    attachHBarChart(prodWrap, pc);
+    attachBarTooltip(prodWrap, produktivitasItems);
+  }
+
+  if((komposisiItems[0].value+komposisiItems[1].value)>0){
+    const kd = donutChart(komposisiItems);
+    const komposisiWrap = document.getElementById('komposisiWrap');
+    komposisiWrap.innerHTML = kd.svg + legendFor(komposisiItems);
+    attachDonutChart(komposisiWrap, kd);
+  }
 
   const lc = lineChart(d.revenueTrend.labels, d.revenueTrend.values, {fmt:fmtMoney});
   const lineWrap = document.getElementById('lineChartWrap');
