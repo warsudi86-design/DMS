@@ -155,6 +155,40 @@ td.num{font-variant-numeric:tabular-nums;}
   margin-top:12px;padding-top:12px;border-top:1px solid var(--border);}
 .tbl-pg-btns{display:flex;align-items:center;gap:10px;}
 .tbl-pg-info{font-size:12px;color:var(--ink-muted);font-weight:700;white-space:nowrap;}
+/* ---------- WIP MONITOR ---------- */
+.aging-pill{display:inline-flex;align-items:baseline;gap:5px;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:800;white-space:nowrap;}
+.aging-pill small{font-size:10.5px;font-weight:600;opacity:.8;}
+.aging-pill.ok{background:rgba(10,143,10,.13);color:#0a7a0a;}
+.aging-pill.warn{background:rgba(201,138,0,.18);color:#8a5f00;}
+.aging-pill.over{background:rgba(194,58,58,.15);color:#a13030;}
+.wip-reasons{display:flex;gap:8px;flex-wrap:wrap;margin:-4px 0 14px;}
+.wip-chip{background:var(--surface-3);border:1px solid var(--border);border-radius:999px;padding:5px 12px;font-size:12px;color:var(--ink-2);font-weight:600;}
+.wip-chip b{color:var(--ink);margin-left:4px;}
+.hold-box{border:1px solid rgba(201,138,0,.4);background:rgba(201,138,0,.1);border-radius:12px;padding:12px 14px;margin:0 0 14px;font-size:13px;}
+.hold-box.late{border-color:rgba(194,58,58,.45);background:rgba(194,58,58,.08);}
+.hold-box.arrived{border-color:rgba(10,143,10,.4);background:rgba(10,143,10,.09);}
+.hold-box h4{margin:0 0 6px;font-size:13.5px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.hold-box .hb-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:6px 14px;margin:8px 0;}
+.hold-box .hb-grid span{display:block;font-size:11px;color:var(--ink-muted);}
+.hold-box .hb-grid b{font-size:13px;}
+.hold-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;}
+.tl{position:relative;margin:6px 0 0 6px;padding-left:20px;}
+.tl::before{content:'';position:absolute;left:5px;top:6px;bottom:6px;width:2px;background:var(--border-strong);}
+.tl-item{position:relative;padding:0 0 14px;font-size:13px;}
+.tl-item:last-child{padding-bottom:0;}
+.tl-dot{position:absolute;left:-20px;top:3px;width:12px;height:12px;border-radius:50%;background:var(--s1);box-shadow:0 0 0 3px var(--surface);}
+.tl-item.t-Hold .tl-dot{background:var(--warn);} .tl-item.t-ETA .tl-dot{background:var(--s4);}
+.tl-item.t-Release .tl-dot{background:var(--good);} .tl-item.t-Komentar .tl-dot{background:var(--ink-muted);}
+.tl-head{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;}
+.tl-type{font-weight:800;font-size:12px;}
+.tl-meta{font-size:11px;color:var(--ink-muted);}
+.tl-text{color:var(--ink-2);margin-top:2px;overflow-wrap:anywhere;}
+.dash-wip{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;align-items:stretch;}
+.dash-wip .dw{background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:12px 14px;}
+.dash-wip .dw .n{font-size:24px;font-weight:800;line-height:1.1;}
+.dash-wip .dw .l{font-size:11.5px;color:var(--ink-muted);font-weight:600;margin-top:2px;}
+.dash-wip .dw.bad .n{color:var(--critical);} .dash-wip .dw.good .n{color:var(--good);}
+
 
 .badge{padding:4px 10px;border-radius:999px;font-size:11px;font-weight:700;display:inline-flex;align-items:center;gap:5px;white-space:nowrap;}
 .badge .dot{width:6px;height:6px;border-radius:50%;}
@@ -511,6 +545,7 @@ const NAV = [
     {id:'wo-completed', label:'Completed', icon:'wo'},
     {id:'wo-invoice', label:'Invoice', icon:'wo'},
     {id:'wo-delivery', label:'Vehicle Delivery', icon:'wo'},
+    {id:'wip-monitor', label:'WIP Monitor', icon:'warning'},
   ]},
   {group:'Part Direct Sales', items:[
     {id:'pds', label:'Part Direct Sales', icon:'part'},
@@ -1142,6 +1177,7 @@ const views = {
   'wo-completed': ()=>renderWOStage('Completed'),
   'wo-invoice': ()=>renderWOStage('Invoice'),
   'wo-delivery': ()=>renderWOStage('Vehicle Delivery'),
+  'wip-monitor': renderWIPMonitor,
   'po-created': renderPOCreated,
   'po-approval': renderPOApproval,
   'po-submit': renderPOSubmitOrder,
@@ -1428,7 +1464,7 @@ async function renderDashboard(dashPeriod, scorePeriod){
   const d = res.data;
   const trend = d.periodTrend || {};
 
-  document.getElementById('bellDot').style.display = di.lowStockCount>0 ? 'block':'none';
+  document.getElementById('bellDot').style.display = (di.lowStockCount>0 || (di.wipMonitor && (di.wipMonitor.overSla>0 || di.wipMonitor.partTiba>0))) ? 'block':'none';
   const navBadge = document.getElementById('navLowStock');
   if(navBadge){ navBadge.style.display = di.lowStockCount>0?'inline-block':'none'; navBadge.textContent = di.lowStockCount; }
 
@@ -1465,6 +1501,18 @@ async function renderDashboard(dashPeriod, scorePeriod){
         <div class="label">Utilisasi Mekanik</div><div class="value">${di.utilisasiMekanik.value}%</div>
         <div class="sub" style="margin-top:4px;">${di.utilisasiMekanik.mekanikSibuk} dari ${di.utilisasiMekanik.totalMekanikAktif} mekanik aktif sedang menangani unit</div></div>
     </div>
+
+    ${di.wipMonitor ? `<div class="panel">
+      <div class="flex-between"><div><h3>Pemantauan WIP</h3><p class="sub" style="margin-bottom:10px;">Unit yang tertahan atau sudah melewati batas SLA - klik untuk lihat daftar lengkap &amp; riwayatnya</p></div>
+        <button class="btn outline sm" onclick="gotoView('wip-monitor')">Buka WIP Monitor</button></div>
+      <div class="dash-wip">
+        <div class="dw"><div class="n">${di.wipMonitor.wip}</div><div class="l">Unit WIP</div></div>
+        <div class="dw ${di.wipMonitor.hold>0?'bad':''}"><div class="n">${di.wipMonitor.hold}</div><div class="l">Sedang Hold</div></div>
+        <div class="dw ${di.wipMonitor.overSla>0?'bad':''}"><div class="n">${di.wipMonitor.overSla}</div><div class="l">Lewat SLA</div></div>
+        <div class="dw ${di.wipMonitor.etaLewat>0?'bad':''}"><div class="n">${di.wipMonitor.etaLewat}</div><div class="l">ETA Terlewat</div></div>
+        <div class="dw ${di.wipMonitor.partTiba>0?'good':''}"><div class="n">${di.wipMonitor.partTiba}</div><div class="l">Part Sudah Tiba</div></div>
+      </div>
+    </div>` : ''}
 
     <div class="grid2">
       <div class="panel">
@@ -2657,6 +2705,210 @@ async function submitWorkOrder(){
     invalidateWOFormCache(); closeDrawer(); refreshCurrentView();
   } else toast(res.message,true);
 }
+/* ================= WIP MONITOR (hold/kendala, aging SLA, riwayat WO) ================= */
+// Lapisan di atas alur WO: tidak mengubah status WO, hanya menandai WO yang tertahan (mis. indent sparepart),
+// mencatat riwayat, dan menghitung umur WIP vs batas SLA per Jenis WO.
+const WIP_AGING_LABEL = {ok:'Normal', warn:'Mendekati SLA', over:'Lewat SLA'};
+function gotoView(id){
+  const el = document.querySelector('[data-view="'+id+'"]');
+  if(el) el.click(); else if(views[id]) views[id]();
+}
+function agingPillHtml(r){
+  return `<span class="aging-pill ${r.Level}" title="${WIP_AGING_LABEL[r.Level]} - batas SLA ${r.JenisWO}: ${r.SlaHari} hari">${r.Umur} hari <small>/ SLA ${r.SlaHari}</small></span>`;
+}
+async function renderWIPMonitor(){
+  setMain(skeletonRows(4));
+  const res = await apiGet('getWIPMonitor');
+  if(!res.success){ setMain(`<div class="panel">${emptyState('Gagal memuat WIP Monitor: '+esc(res.message))}</div>`); return; }
+  const {rows, summary, sla} = res.data;
+  const actor = getActor();
+  rows.forEach(r=>{
+    r.Kondisi = r.Hold ? 'Hold' : 'Berjalan';
+    r.Aging = WIP_AGING_LABEL[r.Level];
+  });
+  const reasons = Object.entries(summary.byAlasan||{});
+  setMain(`
+    <div class="page-head"><div><h2>WIP Monitor</h2>
+      <p>Pantau umur setiap unit yang masih dikerjakan, kendala yang menahannya, dan ETA-nya. Batas SLA: General Repair ${sla.general} hari, Body Repair ${sla.body} hari.</p></div>
+      ${['Manager','Super Admin'].indexOf(actor.role)!==-1 ? `<button class="btn ghost" onclick="openWIPSlaModal(${sla.general},${sla.body})">${icon('edit')} Atur Batas SLA</button>` : ''}
+    </div>
+    <div class="cards">
+      <div class="stat-card"><div class="icon" style="background:rgba(124,111,224,.16);color:var(--s7)">${icon('wo')}</div>
+        <div class="label">Unit WIP</div><div class="value">${summary.wip}</div></div>
+      <div class="stat-card"><div class="icon" style="background:rgba(201,133,0,.16);color:var(--s4)">${icon('warning')}</div>
+        <div class="label">Sedang Hold</div><div class="value">${summary.hold}</div>
+        <div class="sub" style="margin-top:4px;font-size:12px;">${summary.etaLewat>0?summary.etaLewat+' ETA sudah terlewat':'Tidak ada ETA terlewat'}</div></div>
+      <div class="stat-card"><div class="icon" style="background:rgba(194,58,58,.14);color:var(--critical)">${icon('warning')}</div>
+        <div class="label">Lewat SLA</div><div class="value" style="color:${summary.overSla>0?'var(--critical)':'inherit'}">${summary.overSla}</div></div>
+      <div class="stat-card"><div class="icon" style="background:rgba(10,143,10,.14);color:var(--good)">${icon('receive')}</div>
+        <div class="label">Part Sudah Tiba</div><div class="value" style="color:${summary.partTiba>0?'var(--good)':'inherit'}">${summary.partTiba}</div>
+        <div class="sub" style="margin-top:4px;font-size:12px;">${summary.partTiba>0?'Hold bisa dilepas &amp; dilanjutkan':'-'}</div></div>
+    </div>
+    ${reasons.length ? `<div class="wip-reasons">${reasons.map(([k,v])=>`<span class="wip-chip">${esc(k)}<b>${v}</b></span>`).join('')}</div>` : ''}
+    ${filterBarHtml('wip', [
+      {key:'Kondisi', label:'Kondisi', options:['Hold','Berjalan']},
+      {key:'Aging', label:'Aging', options:['Lewat SLA','Mendekati SLA','Normal']},
+      {key:'HoldAlasan', label:'Alasan Hold', options:[...new Set(rows.map(r=>r.HoldAlasan).filter(Boolean))]},
+      {key:'Tahap', label:'Tahap WO', options:[...new Set(rows.map(r=>r.Tahap))]},
+      {key:'JenisWO', label:'Jenis WO', options:['General Repair','Body Repair']},
+      {key:'SA', label:'SA', options:[...new Set(rows.map(r=>r.SA).filter(Boolean))]}
+    ], 'TglWO', null, {keys:['WOID','NoPolisi','NamaCustomer','PONumber','SA'], placeholder:'Cari No. WO / No Polisi / Customer / PO...'})}
+    <div class="panel">${dataTable({
+      id:'wip', rows:rows, searchKeys:['WOID','NoPolisi','NamaCustomer','PONumber','SA'], showSearch:false,
+      columns:[
+        {key:'WOID', label:'No. WO', render:r=>`<span class="link-id" onclick="viewWorkOrder('${esc(r.WOID)}')">${esc(r.WOID)}</span>`},
+        {key:'NoPolisi', label:'Unit', render:r=>`<b style="white-space:nowrap;">${esc(r.NoPolisi||'-')}</b><div class="muted" style="font-size:11px;white-space:nowrap;">${esc(r.NamaCustomer||'')}</div>`},
+        {key:'JenisWO', label:'Jenis'},
+        {key:'Tahap', label:'Tahap', render:r=>statusBadge(r.Tahap, WO_STATUS_SLOT)},
+        {key:'Umur', label:'Umur WIP', numeric:true, render:r=>agingPillHtml(r)},
+        {key:'HoldAlasan', label:'Kendala', render:r=> r.Hold
+          ? `<div style="font-weight:700;font-size:12.5px;min-width:150px;">${esc(r.HoldAlasan)}</div><div class="muted" style="font-size:11px;">Hold ${r.HoldHari} hari${r.PIC?' · PIC '+esc(r.PIC):''}</div>`
+          : '<span class="muted">-</span>'},
+        {key:'ETA', label:'ETA', render:r=> r.PartTiba ? `<span class="badge good"><span class="dot"></span>Part tiba</span>`
+          : (r.ETA ? `<span style="${r.ETATerlambat?'color:var(--critical);font-weight:800;':''}">${fmtDate(r.ETA)}${r.ETATerlambat?' ⚠':''}</span>` : '<span class="muted">-</span>')},
+        {key:'PONumber', label:'PO', render:r=> r.PONumber ? `${esc(r.PONumber)}<div class="muted" style="font-size:11px;">${esc(r.PoStatus||'')}</div>` : '<span class="muted">-</span>'},
+        {key:'SA', label:'SA', render:r=>esc(r.SA||'-')}
+      ],
+      rowActions:r=>`<button class="btn ghost sm" onclick="viewWorkOrder('${esc(r.WOID)}')">Detail</button>`
+    })}</div>
+  `);
+  initTable('wip');
+}
+function openWIPSlaModal(g,b){
+  openModal(`
+    <h3 style="margin:0 0 6px;">Batas SLA WIP</h3>
+    <p class="sub">Unit dianggap "Lewat SLA" kalau umur WIP-nya melebihi batas ini. Mendekati SLA = sudah 75% dari batas.</p>
+    <div class="grid2" style="grid-template-columns:1fr 1fr;">
+      <div><label>General Repair (hari)</label><input id="sla_g" type="number" min="1" value="${g}"></div>
+      <div><label>Body Repair (hari)</label><input id="sla_b" type="number" min="1" value="${b}"></div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:10px;">
+      <button class="btn secondary" onclick="closeModal()">Batal</button>
+      <button class="btn" onclick="saveWIPSla()">Simpan</button>
+    </div>`);
+}
+async function saveWIPSla(){
+  const actor = getActor();
+  const res = await apiPost('saveWIPSla', {general:val('sla_g'), body:val('sla_b'), ActorRole:actor.role});
+  if(res.success){ toast('Batas SLA disimpan'); closeModal(); renderWIPMonitor(); } else toast(res.message,true);
+}
+
+/* ---- Hold/riwayat di dalam drawer detail WO ---- */
+async function loadWOTimeline(woid, status){
+  const holdBox = document.getElementById('wo_hold_box'), tlBox = document.getElementById('wo_tl_box');
+  if(!holdBox || !tlBox) return;
+  const res = await apiGet('getWOTimeline', {id:woid});
+  if(!res.success){ tlBox.innerHTML = `<p class="muted">Riwayat tidak dapat dimuat.</p>`; return; }
+  const {hold, logs, shortage, poCandidates} = res.data;
+  const actor = getActor();
+  const canHold = ['SA','Manager','Super Admin'].indexOf(actor.role)!==-1 && ['New','Dispatching','Material Picking'].indexOf(status)!==-1;
+  window.__woHoldCtx = {woid, hold, shortage:shortage||[], poCandidates:poCandidates||[]};
+  if(hold){
+    const late = hold.ETA && hold.ETA < new Date().toISOString().slice(0,10) && !hold.PartTiba;
+    holdBox.innerHTML = `<div class="hold-box ${hold.PartTiba?'arrived':(late?'late':'')}">
+      <h4>${hold.PartTiba?'✓ Part sudah tiba':'WO sedang Hold'} <span class="badge warn"><span class="dot"></span>${esc(hold.Alasan)}</span></h4>
+      ${hold.PartTiba ? `<div>Part dari PO <b>${esc(hold.PONumber)}</b> sudah diterima. Lepas Hold supaya WO bisa dilanjutkan.</div>` : ''}
+      <div class="hb-grid">
+        <div><span>Sudah di-hold</span><b>${hold.HoldHari} hari</b></div>
+        <div><span>ETA</span><b style="${late?'color:var(--critical)':''}">${hold.ETA?fmtDate(hold.ETA)+(late?' (terlewat)':''):'-'}</b></div>
+        <div><span>PIC</span><b>${esc(hold.PIC||'-')}</b></div>
+        <div><span>PO</span><b>${hold.PONumber?esc(hold.PONumber)+' · '+esc(hold.PoStatus||''):'-'}</b></div>
+      </div>
+      ${hold.Detail ? `<div class="muted" style="font-size:12.5px;">${esc(hold.Detail)}</div>` : ''}
+      ${canHold ? `<div class="hold-actions">
+        <button class="btn ghost sm" onclick="openEditHoldModal()">Ubah ETA / PIC</button>
+        <button class="btn good sm" onclick="releaseHold('${woid}')">${icon('approve')} Lepas Hold</button></div>` : ''}
+    </div>`;
+  } else if(shortage && shortage.length){
+    holdBox.innerHTML = `<div class="hold-box">
+      <h4>⚠ Stok part kurang</h4>
+      <div style="font-size:12.5px;">${shortage.map(s=>`${esc(s.PartName)} (butuh ${s.Qty}, stok ${s.Stok})`).join('; ')}</div>
+      ${poCandidates.length ? `<div class="muted" style="font-size:12px;margin-top:4px;">PO terkait: ${poCandidates.map(p=>esc(p.PONumber)+' ('+esc(p.Status)+')').join(', ')}</div>`:''}
+      ${canHold ? `<div class="hold-actions"><button class="btn sm" onclick="openHoldModal(true)">Tandai Menunggu Sparepart</button></div>` : ''}
+    </div>`;
+  } else {
+    holdBox.innerHTML = canHold ? `<div style="margin:0 0 12px;"><button class="btn ghost sm" onclick="openHoldModal(false)">Tandai Hold / Kendala</button></div>` : '';
+  }
+  const fmtLog = l => {
+    let text = l.Keterangan || '';
+    if(l.Tipe==='Status') text = (l.DariStatus ? l.DariStatus+' → ' : '') + l.KeStatus + (l.Keterangan?' · '+l.Keterangan:'');
+    return `<div class="tl-item t-${esc(l.Tipe)}"><span class="tl-dot"></span>
+      <div class="tl-head"><span class="tl-type">${esc(l.Tipe==='Status'?'Status':l.Tipe==='ETA'?'ETA':l.Tipe)}</span><span class="tl-meta">${fmtDateTime(l.Tgl)}${l.Oleh?' · '+esc(l.Oleh):''}</span></div>
+      <div class="tl-text">${esc(text)||'-'}</div></div>`;
+  };
+  tlBox.innerHTML = `<div class="flex-between"><h3 style="font-size:13.5px;margin:18px 0 8px;">Riwayat Work Order</h3>
+      <button class="btn ghost sm" onclick="openWOCommentModal('${woid}')">${icon('plus')} Catatan</button></div>
+    ${logs.length ? `<div class="tl">${logs.slice().reverse().map(fmtLog).join('')}</div>` : '<p class="muted" style="font-size:12.5px;">Belum ada riwayat tercatat (WO ini dibuat sebelum fitur riwayat aktif, riwayat mulai terisi dari perubahan berikutnya).</p>'}`;
+}
+function openHoldModal(fromShortage){
+  const ctx = window.__woHoldCtx || {};
+  const sparepart = !!fromShortage;
+  const shortTxt = (ctx.shortage||[]).map(s=>`${s.PartName} (butuh ${s.Qty}, stok ${s.Stok})`).join('; ');
+  const cands = ctx.poCandidates||[];
+  openModal(`
+    <h3 style="margin:0 0 10px;">Tandai Hold / Kendala</h3>
+    <label>Alasan</label>
+    <select id="hold_alasan">${['Menunggu Sparepart (Indent)','Menunggu Persetujuan Customer/Asuransi','Menunggu Sublet','Menunggu Customer','Lainnya'].map((a,i)=>`<option ${(sparepart&&i===0)?'selected':''}>${a}</option>`).join('')}</select>
+    <label>Keterangan</label><textarea id="hold_detail" placeholder="mis. Bumper depan indent, supplier konfirmasi 5 hari">${sparepart?esc('Stok kurang: '+shortTxt):''}</textarea>
+    <div class="grid2" style="grid-template-columns:1fr 1fr;">
+      <div><label>Perkiraan Tiba / Selesai (ETA)</label><input id="hold_eta" type="date"></div>
+      <div><label>PIC yang follow up</label><input id="hold_pic" value="${esc(getActor().name||'')}"></div>
+    </div>
+    <label>PO terkait (opsional)</label>
+    <select id="hold_po"><option value="">— Tanpa PO —</option>${cands.map(p=>`<option value="${esc(p.PONumber)}|${esc(p.PartNumber)}" ${sparepart?'selected':''}>${esc(p.PONumber)} · ${esc(p.Supplier||'')} · ${esc(p.Status)}</option>`).join('')}</select>
+    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:6px;">
+      <button class="btn secondary" onclick="closeModal()">Batal</button>
+      <button class="btn" onclick="submitHold()">Simpan Hold</button>
+    </div>`);
+}
+async function submitHold(){
+  const ctx = window.__woHoldCtx||{}; const actor = getActor();
+  const po = (val('hold_po')||'').split('|');
+  const res = await apiPost('setWOHold', {WOID:ctx.woid, Alasan:val('hold_alasan'), Detail:val('hold_detail'), ETA:val('hold_eta'),
+    PIC:val('hold_pic'), PONumber:po[0]||'', PartNumber:po[1]||'', ActorRole:actor.role, ActorName:actor.name||''});
+  if(res.success){ toast('WO ditandai Hold'); closeModal(); viewWorkOrder(ctx.woid); refreshCurrentView(); } else toast(res.message,true);
+}
+function openEditHoldModal(){
+  const h = (window.__woHoldCtx||{}).hold; if(!h) return;
+  openModal(`
+    <h3 style="margin:0 0 10px;">Ubah ETA / PIC</h3>
+    <div class="grid2" style="grid-template-columns:1fr 1fr;">
+      <div><label>ETA</label><input id="eh_eta" type="date" value="${esc(h.ETA||'')}"></div>
+      <div><label>PIC</label><input id="eh_pic" value="${esc(h.PIC||'')}"></div>
+    </div>
+    <label>Catatan perubahan</label><input id="eh_cat" placeholder="mis. supplier mundur 3 hari">
+    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:6px;">
+      <button class="btn secondary" onclick="closeModal()">Batal</button>
+      <button class="btn" onclick="submitEditHold()">Simpan</button>
+    </div>`);
+}
+async function submitEditHold(){
+  const ctx = window.__woHoldCtx||{}; const actor = getActor();
+  const res = await apiPost('updateWOHold', {WOID:ctx.woid, ETA:val('eh_eta'), PIC:val('eh_pic'), Catatan:val('eh_cat'), ActorRole:actor.role, ActorName:actor.name||''});
+  if(res.success){ toast('Hold diperbarui'); closeModal(); viewWorkOrder(ctx.woid); refreshCurrentView(); } else toast(res.message,true);
+}
+async function releaseHold(woid){
+  const cat = prompt('Catatan pelepasan Hold (opsional, mis. "part sudah datang"):');
+  if(cat===null) return;
+  const actor = getActor();
+  const res = await apiPost('releaseWOHold', {WOID:woid, Catatan:cat, ActorRole:actor.role, ActorName:actor.name||''});
+  if(res.success){ toast('Hold dilepas'); viewWorkOrder(woid); refreshCurrentView(); } else toast(res.message,true);
+}
+function openWOCommentModal(woid){
+  openModal(`
+    <h3 style="margin:0 0 10px;">Tambah Catatan ke Riwayat WO</h3>
+    <textarea id="woc_teks" placeholder="mis. Customer sudah dikabari soal indent part"></textarea>
+    <div style="display:flex;justify-content:flex-end;gap:10px;">
+      <button class="btn secondary" onclick="closeModal()">Batal</button>
+      <button class="btn" onclick="submitWOComment('${woid}')">Simpan</button>
+    </div>`);
+}
+async function submitWOComment(woid){
+  const actor = getActor();
+  const res = await apiPost('addWOComment', {WOID:woid, Teks:val('woc_teks'), ActorName:actor.name||''});
+  if(res.success){ toast('Catatan ditambahkan'); closeModal(); viewWorkOrder(woid); } else toast(res.message,true);
+}
+
 async function viewWorkOrder(woid){
   const res = await apiGet('getWorkOrder', {id:woid});
   if(!res.success){ toast(res.message,true); return; }
@@ -2681,6 +2933,7 @@ async function viewWorkOrder(woid){
     <div class="drawer-head"><h3>Work Order ${header.WOID}</h3><button class="drawer-close" onclick="closeDrawer()">&times;</button></div>
     <div class="drawer-body">
       ${stepperHtml}
+      <div id="wo_hold_box"></div>
       <div class="grid3">
         <div class="kv"><span>Customer</span><b>${esc(header.NamaCustomer)}</b></div>
         <div class="kv"><span>No Polisi</span><b>${esc(header.NoPolisi)}</b></div>
@@ -2715,6 +2968,7 @@ async function viewWorkOrder(woid){
       </div>` : (header.DiskonApprovedBy ? `<div class="warn-box" style="margin-top:10px;">✓ Diskon di atas 10% sudah disetujui oleh <b>${esc(header.DiskonApprovedBy)}</b>.</div>` : '')}
       ${!editable && header.Status!=='Cancelled' ? `<p class="sub" style="margin-top:8px;">ℹ WO sudah Completed, tidak bisa ditambah item lagi.</p>`:''}
       ${noParts && header.Status==='Dispatching' ? `<p class="sub" style="margin-top:8px;">ℹ WO ini tidak ada part, jadi tahap Material Picking (Part Staff) otomatis dilewati — langsung ke Completed.</p>`:''}
+      <div id="wo_tl_box"><p class="muted" style="font-size:12.5px;">Memuat riwayat...</p></div>
     </div>
     <div class="drawer-foot">
       <div style="display:flex;gap:8px;">
@@ -2728,6 +2982,8 @@ async function viewWorkOrder(woid){
       </div>
     </div>
   `);
+  window.__woHoldCtx = {woid, status: header.Status};
+  loadWOTimeline(woid, header.Status);
 }
 async function confirmApproveDiskon(woid){
   const actor = getActor();
